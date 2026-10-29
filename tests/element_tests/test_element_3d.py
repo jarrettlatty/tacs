@@ -61,6 +61,7 @@ class ElementTest(unittest.TestCase):
             elements.LinearHexaBasis(),
             elements.QuadraticHexaBasis(),
             elements.CubicHexaBasis(),
+            elements.LinearPentaBasis(),
         ]
 
         # Create stiffness

@@ -1,0 +1,16 @@
+15 0
+nribs
+nspars
+chord0
+chordf
+span
+dihedral
+lesweep
+tc0
+tcf
+camb0
+cambf
+spar_a1
+spar_a2
+rib_a1
+rib_a2

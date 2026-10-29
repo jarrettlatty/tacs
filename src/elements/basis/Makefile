@@ -14,6 +14,7 @@ CXX_OBJS = TACSElementBasis.o \
 	TACSTensorProductBasisImpl.o \
 	TACSTriangularBasis.o \
 	TACSTetrahedralBasis.o \
+	TACSPentaBasis.o \
 	TACSQuadBernsteinBasis.o \
 	TACSHexaBernsteinBasis.o \
 	TACSElementMappedBasis.o \

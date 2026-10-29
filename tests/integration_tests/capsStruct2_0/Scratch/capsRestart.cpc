@@ -1,0 +1,102 @@
+# /lustre3/hpnobackup2/shared/hsftc4/codes/tacs/tests/integration_tests/capsStruct2_0/Scratch/capsRestart.cpc written by ocsmSave (v1.29)
+
+# Constant, Design, and Output Parameters:
+CFGPMTR   nribs       4.00000
+CFGPMTR   nspars       1.00000
+DESPMTR   chord0       2.00000
+DESPMTR   chordf       1.00000
+DESPMTR   span      10.00000
+DESPMTR   dihedral       3.00000
+DESPMTR   lesweep      15.00000
+DESPMTR   tc0       0.12000
+DESPMTR   tcf       0.12000
+DESPMTR   camb0       0.05000
+DESPMTR   cambf       0.05000
+DESPMTR   spar_a1       1.00000
+DESPMTR   spar_a2       0.00000
+DESPMTR   rib_a1       1.00000
+DESPMTR   rib_a2       0.00000
+
+# Global Attributes:
+
+# Branches:
+SET       spar_a3 1.0-spar_a1-spar_a2
+SET       rib_a3 1.0-rib_a1-rib_a2
+SET       sspan span/2.0
+SET       zf sspan*tand(dihedral)
+SET       xf sspan*tand(lesweep)
+SET       margin1 5.0
+SET       margin2 3.0
+SET       margin3 10.0
+MARK
+UDPRIM    naca   thickness   tc0   camber   camb0   maxloc   0.3
+SCALE     chord0   0   0   0
+ROTATEX   90   0   0
+UDPRIM    naca   thickness   tcf   camber   cambf   maxloc   0.3
+SCALE     chordf   0   0   0
+ROTATEX   90   0   0
+TRANSLATE xf   -sspan   zf
+LOFT      0
+SELECT    face
+ATTRIBUTE capsGroup   $OML
+ATTRIBUTE _color   $blue
+SELECT    face   5
+ATTRIBUTE capsGroup   $rib1
+ATTRIBUTE _color   $green
+SELECT    face   4
+ATTRIBUTE capsGroup   !$rib+nribs
+ATTRIBUTE _color   $green
+STORE     solidWing   0   0
+PATBEG    ispar   nspars
+   SET       fr ispar/(nspars+1)
+   SET       sparFrac fr*(spar_a1+fr*(spar_a2+fr*spar_a3))
+   SET       xroot chord0*sparFrac
+   SET       xtip chordf*sparFrac+xf
+   SET       deltax xtip-xroot
+   SET       angle atand(deltax/sspan)
+   BOX       xroot   margin2   -margin1   0.0   -sspan-2*margin2   2*margin1
+   TRANSLATE -xroot   0   0
+   ROTATEZ   angle   0   0
+   TRANSLATE xroot   0   0
+   SELECT    face
+ATTRIBUTE capsGroup   !$spar+ispar
+ATTRIBUTE _color   $green
+PATEND
+SET       ninnerRibs nribs-2
+PATBEG    index   ninnerRibs
+   SET       irib index+1
+   SET       fr (irib-1)/(nribs-1)
+   SET       ribFrac fr*(rib_a1+fr*(rib_a2+fr*rib_a3))
+   SET       ypos -ribFrac*sspan
+   BOX       -margin3   ypos   -margin2   2*margin3   0   2*margin2
+   SELECT    face
+ATTRIBUTE capsGroup   !$rib+irib
+ATTRIBUTE _color   $green
+   IFTHEN    index   eq   1   and   0   eq   0
+      PATBEG    ispar   nspars
+         UNION     0   0   0
+      PATEND
+   ELSE
+      UNION     0   0   0
+   ENDIF
+PATEND
+RESTORE   solidWing   0
+INTERSECT none   1   0
+RESTORE   solidWing   0
+HOLLOW    0   0   0
+UNION     0   0   0
+SELECT    face   $capsGroup   $rib1   $*   $*   $*   $*
+ATTRIBUTE capsConstraint   $root
+UDPRIM    editAttr   filename   <<
+ EDGE ADJ2FACE capsConstraint=root
+ SET capsConstraint=root
+
+ NODE ADJ2FACE capsConstraint=root
+ SET capsConstraint=root
+>>
+SELECT    face   $capsGroup   $OML   $*   $*   $*   $*
+ATTRIBUTE capsLoad   $OML
+SELECT    body
+ATTRIBUTE capsAIM   $egadsTessAIM;tacsAIM
+
+END

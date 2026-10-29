@@ -218,6 +218,26 @@ class pyMeshLoader(BaseUI):
                     conn[7],
                     conn[6],
                 ]
+            elif "CPENTA" in elementType and len(conn) == 6:
+                # Nastran does not enforce a particular triangle winding for
+                # CPENTA6 (G1,G2,G3 / G4,G5,G6 may be wound either way
+                # depending on the mesh generator/converter). TACS's linear
+                # prism basis assumes the right-handed convention where the
+                # (G1,G2,G3) face normal points toward (G4,G5,G6) (the same
+                # convention used by VTK's wedge cell type). Detect and
+                # correct elements that use the opposite winding so that
+                # both conventions import correctly.
+                n1, n2, n3, n4, n5, n6 = [
+                    np.array(self.bdfInfo.nodes[nid].xyz) for nid in conn
+                ]
+                normal = np.cross(n2 - n1, n3 - n1)
+                centroidBottom = (n1 + n2 + n3) / 3.0
+                centroidTop = (n4 + n5 + n6) / 3.0
+                if np.dot(normal, centroidTop - centroidBottom) < 0.0:
+                    # Swap within each triangular face (preserving the
+                    # G1-G4, G2-G5, G3-G6 edge correspondence) to flip the
+                    # element's orientation.
+                    conn = [conn[0], conn[2], conn[1], conn[3], conn[5], conn[4]]
 
             # Map node ids in connectivity from Nastran numbering to TACS numbering
             self.elemConnectivity[tacsElementID] = self.idMap(

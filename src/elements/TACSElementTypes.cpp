@@ -776,6 +776,9 @@ void TacsConvertVisLayoutToBasicCount(ElementLayout ltype, int *ntypes,
       break;
 
     case TACS_PENTA_ELEMENT:
+      *ntypes = 1;
+      *nconn = 6;
+      break;
     case TACS_PENTA_QUADRATIC_ELEMENT:
     case TACS_PENTA_CUBIC_ELEMENT:
       break;
@@ -897,8 +900,15 @@ void TacsConvertVisLayoutToBasic(ElementLayout ltype, const int conn[],
         }
       }
     }
-  } else if (ltype == TACS_PENTA_ELEMENT ||
-             ltype == TACS_PENTA_QUADRATIC_ELEMENT ||
+  } else if (ltype == TACS_PENTA_ELEMENT) {
+    basic_ltypes[0] = TACS_PENTA_ELEMENT;
+    basic_conn[0] = conn[0];
+    basic_conn[1] = conn[1];
+    basic_conn[2] = conn[2];
+    basic_conn[3] = conn[3];
+    basic_conn[4] = conn[4];
+    basic_conn[5] = conn[5];
+  } else if (ltype == TACS_PENTA_QUADRATIC_ELEMENT ||
              ltype == TACS_PENTA_CUBIC_ELEMENT) {
   }
 }

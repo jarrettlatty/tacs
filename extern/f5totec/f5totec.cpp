@@ -281,6 +281,13 @@ int main(int argc, char *argv[]) {
         nconn = 4;
         ntypes = 1;
       }
+      // Tecplot's FE zone format has no native wedge/prism type, so
+      // represent the 6-node linear penta as a degenerate 8-node brick
+      // (one corner repeated on each triangular face).
+      else if (ltype == TACS_PENTA_ELEMENT) {
+        ntypes = 1;
+        nconn = 8;
+      }
       // RBE2: nodes are [1 indep | N dep | N multiplier]. Skip multipliers.
       else if (ltype == TACS_RBE2_ELEMENT) {
         int nnodes = ptr[k + 1] - ptr[k];
@@ -348,6 +355,27 @@ int main(int argc, char *argv[]) {
         nconn = 4;
         ntypes = 1;
         btypes[0] = TACS_TETRA_ELEMENT;
+      }
+      // Represent the 6-node wedge/prism as a degenerate 8-node brick,
+      // since Tecplot's FE zone format has no native wedge type. TACS
+      // penta node order is 0,1,2 = bottom triangle, 3,4,5 = top triangle,
+      // which already satisfies the brick convention of a consistent CCW
+      // winding (viewed from a fixed direction) on both parallel faces,
+      // so no node reordering is needed - we only repeat one corner on
+      // each triangular face to collapse one "quad" face to zero width.
+      else if (ltype == TACS_PENTA_ELEMENT) {
+        const int *wedge_conn = &conn[ptr[k]];
+        bconn[0] = wedge_conn[0];
+        bconn[1] = wedge_conn[1];
+        bconn[2] = wedge_conn[2];
+        bconn[3] = wedge_conn[2];
+        bconn[4] = wedge_conn[3];
+        bconn[5] = wedge_conn[4];
+        bconn[6] = wedge_conn[5];
+        bconn[7] = wedge_conn[5];
+        nconn = 8;
+        ntypes = 1;
+        btypes[0] = TACS_PENTA_ELEMENT;
       }
       // RBE2: skip trailing N multiplier nodes; connect indep to each dep node
       else if (ltype == TACS_RBE2_ELEMENT) {
@@ -423,6 +451,11 @@ int main(int argc, char *argv[]) {
       for (int i = 0; i < num_basic_elements; i++) {
         ElementLayout ltype = (ElementLayout)basic_ltypes[i];
         int conn_size = TacsGetNumVisNodes(ltype);
+        if (ltype == TACS_PENTA_ELEMENT) {
+          // basic_conn holds the degenerate 8-node brick representation
+          // built above, not the true 6-node penta connectivity.
+          conn_size = 8;
+        }
 
         if (basic_element_comp_num[i] == k) {
           // Make sure all elements in this zone are the same type
@@ -480,6 +513,9 @@ int main(int argc, char *argv[]) {
       } else if (zone_btype == TACS_TETRA_ELEMENT) {
         zone_type = FETETRAHEDRON;
       } else if (zone_btype == TACS_HEXA_ELEMENT) {
+        zone_type = FEBRICK;
+      } else if (zone_btype == TACS_PENTA_ELEMENT) {
+        // Written out above as a degenerate 8-node brick.
         zone_type = FEBRICK;
       } else {
         fprintf(stderr,

@@ -49,7 +49,7 @@ class Constraint:
 
 class PinConstraint(Constraint):
     def __init__(
-        self, caps_constraint: str, name: str = None, dof_constraint: int = 123
+        self, caps_constraint: str, name: str = None, dof_constraint: int = 123456
     ):
         """
         Elastic pin ESP/CAPS Constraint by default

@@ -27,6 +27,7 @@ const int VTK_TRIANGLE = 5;
 const int VTK_QUAD = 9;
 const int VTK_TETRA = 10;
 const int VTK_HEXAHEDRON = 12;
+const int VTK_WEDGE = 13;
 const int VTK_QUADRATIC_TRIANGLE = 22;
 const int VTK_QUADRATIC_TETRA = 24;
 
@@ -198,6 +199,8 @@ int main(int argc, char *argv[]) {
         fprintf(fp, "%d\n", VTK_QUADRATIC_TETRA);
       } else if (basic_ltypes[k] == TACS_HEXA_ELEMENT) {
         fprintf(fp, "%d\n", VTK_HEXAHEDRON);
+      } else if (basic_ltypes[k] == TACS_PENTA_ELEMENT) {
+        fprintf(fp, "%d\n", VTK_WEDGE);
       }
     }
     delete[] basic_conn;

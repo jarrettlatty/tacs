@@ -1287,6 +1287,17 @@ class pyTACS(BaseUI):
                     basis = tacs.elements.LinearHexaBasis()
                     model = tacs.elements.LinearElasticity3D(con)
                     elem = tacs.elements.Element3D(model, basis)
+                elif "CPENTA" in descript:
+                    # May have variable number of nodes in card
+                    nnodes = len(elemInfo.nodes)
+                    if nnodes == 6:
+                        basis = tacs.elements.LinearPentaBasis()
+                    else:
+                        raise self._TACSError(
+                            f"TACS does not currently support CPENTA elements with {nnodes} nodes."
+                        )
+                    model = tacs.elements.LinearElasticity3D(con)
+                    elem = tacs.elements.Element3D(model, basis)
                 elif descript == "CBUSH":
                     elem = tacs.elements.SpringElement(transform, con)
                 else:

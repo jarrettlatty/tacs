@@ -77,11 +77,11 @@
   - Comments start with a dollar sign
 */
 
-const int TACSMeshLoader::NumElementTypes = 12;
+const int TACSMeshLoader::NumElementTypes = 13;
 
 const char *TACSMeshLoader::ElementTypes[] = {
     "CBAR",    "CQUADR", "CQUAD4",  "CQUAD8", "CQUAD9", "CQUAD16",
-    "CQUAD25", "CQUAD",  "CHEXA27", "CHEXA",  "CTRIA3", "CTETRA"};
+    "CQUAD25", "CQUAD",  "CHEXA27", "CHEXA",  "CTRIA3", "CTETRA", "CPENTA"};
 
 // Lower and upper limits for the number of nodes
 const int TACSMeshLoader::ElementLimits[][2] = {{2, 2},    // CBAR
@@ -95,7 +95,8 @@ const int TACSMeshLoader::ElementLimits[][2] = {{2, 2},    // CBAR
                                                 {27, 27},  // CHEXA27
                                                 {8, 8},    // CHEXA
                                                 {3, 3},    // CTRIA3
-                                                {4, 10}};  // CTETRA
+                                                {4, 10},   // CTETRA
+                                                {6, 6}};   // CPENTA
 
 /*
   Functions for sorting a list such that:

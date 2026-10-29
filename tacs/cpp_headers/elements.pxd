@@ -73,6 +73,10 @@ cdef extern from "TACSTetrahedralBasis.h":
     cdef cppclass TACSCubicTetrahedralBasis(TACSElementBasis):
         TACSCubicTetrahedralBasis()
 
+cdef extern from "TACSPentaBasis.h":
+    cdef cppclass TACSLinearPentaBasis(TACSElementBasis):
+        TACSLinearPentaBasis()
+
 cdef extern from "TACSHexaBasis.h":
     cdef cppclass TACSLinearHexaBasis(TACSElementBasis):
         TACSLinearHexaBasis()

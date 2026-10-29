@@ -34,6 +34,7 @@ class EgadsAim:
         global_mesh_size: float = 0.25,
         max_surf_offset: float = 0.01,
         max_dihedral_angle: float = 15,
+        mesh_length_factor: float = 1.0,
     ):
         """
         cascaded method to set the mesh input settings to the egadsAim
@@ -43,6 +44,7 @@ class EgadsAim:
                 self._aim.input.Edge_Point_Min = edge_pt_min
                 self._aim.input.Edge_Point_Max = edge_pt_max
                 self._aim.input.Mesh_Elements = mesh_elements
+                self._aim.input.Mesh_Length_Factor = mesh_length_factor
                 self._aim.input.Tess_Params = [
                     global_mesh_size,
                     max_surf_offset,

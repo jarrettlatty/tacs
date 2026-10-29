@@ -116,7 +116,7 @@ class TacsModel:
         if mesh == "egads":
             mesh_aim = EgadsAim(caps_problem, comm, active_procs=active_procs)
         elif mesh == "aflr":
-            mesh_aim = AflrAim(caps_problem, comm, active_procs=active_procs)
+            mesh_aim = AflrAim(caps_problem, comm) #, active_procs=active_procs)
         return cls(tacs_aim, mesh_aim, comm)
 
     @property

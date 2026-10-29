@@ -64,7 +64,7 @@ class AflrAim:
         """
 
         if self.root_proc:
-            self.aim.input.min_scale = min_scale
+            self.aim.input.ideal_min_scale = min_scale
             self.aim.input.max_scale = max_scale
             self.aim.input.AFLR4_Quad = AFLR4_Quad
             self._aim.input.no_prox = no_prox

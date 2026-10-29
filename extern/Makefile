@@ -15,7 +15,7 @@ CMAKE_MAJOR_VERSION := $(shell (cmake --version 2>/dev/null || echo "version 0")
 CMAKE_POLICY_FLAG := $(shell if [ $(CMAKE_MAJOR_VERSION) -ge 4 ]; then echo "CMAKE_POLICY_VERSION_MINIMUM=3.5"; fi)
 # --- End CMake Version Check ---
 
-default: suitesparse tecio metis
+default: tecio metis
 
 .phony: suitesparse
 suitesparse: # Allowed to fail since SuiteSparse/AMD is optional

@@ -293,6 +293,17 @@ cdef class QuadraticTetrahedralBasis(ElementBasis):
 #        self.ptr = new TACSCubicTetrahedralBasis()
 #        self.ptr.incref()
 
+cdef class LinearPentaBasis(ElementBasis):
+    """
+    Basis class for a linear triangular-prism (wedge/CPENTA) 3D element.
+
+    .. note::
+        **numNodes**: 6
+    """
+    def __cinit__(self):
+        self.ptr = new TACSLinearPentaBasis()
+        self.ptr.incref()
+
 
 cdef class LinearHexaBasis(ElementBasis):
     """
