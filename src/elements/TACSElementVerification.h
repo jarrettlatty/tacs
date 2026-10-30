@@ -435,6 +435,27 @@ int TacsTestElementModelAdjXptSensProduct(TACSElementModel *model,
                                           double test_fail_rtol);
 
 /**
+  Test the element model point-wise quantity sensitivities with respect
+  to X, Ut, Ux and the design variables
+
+  Returns zero without testing if the model does not support the quantity.
+
+  @param model The TACSElementModel instance to check
+  @param elemIndex The local element index
+  @param quantityType Integer indicating the type of pointwise quantity
+  @param time The simulation time
+  @param dh The finite-difference step size
+  @param test_print_level The output level
+  @param test_fail_atol The test absolute tolerance
+  @param test_fail_rtol The test relative tolerance
+*/
+int TacsTestElementModelQuantitySens(TACSElementModel *model, int elemIndex,
+                                     int quantityType, const double time,
+                                     double dh = 1e-7, int test_print_level = 2,
+                                     double test_fail_atol = 1e-5,
+                                     double test_fail_rtol = 1e-5);
+
+/**
   Test the element model functions
 
   @param model The TACSElementModel instance to check

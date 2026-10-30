@@ -184,10 +184,7 @@ void TACSPlaneStressConstitutive::evalThermalStrain(int elemIndex,
                                                     TacsScalar theta,
                                                     TacsScalar e[]) {
   if (properties) {
-    properties->evalThermalStrain2D(e);
-    e[0] *= theta;
-    e[1] *= theta;
-    e[2] *= theta;
+    properties->evalThermalStrain2D(theta, e);
   } else {
     e[0] = e[1] = e[2] = 0.0;
   }
@@ -272,6 +269,242 @@ TacsScalar TACSPlaneStressConstitutive::evalFailureStrainSens(
     dfde[2] = (C[2] * sens[0] + C[4] * sens[1] + C[5] * sens[2]);
 
     return fail;
+  }
+  return 0.0;
+}
+
+// Temperature-dependent evaluations
+
+// Check whether the material properties depend on temperature
+int TACSPlaneStressConstitutive::isTemperatureDependent() {
+  if (properties) {
+    return properties->isTemperatureDependent();
+  }
+  return 0;
+}
+
+// Evaluate the specific heat at the temperature change theta
+TacsScalar TACSPlaneStressConstitutive::evalSpecificHeat(int elemIndex,
+                                                         const double pt[],
+                                                         const TacsScalar X[],
+                                                         TacsScalar theta) {
+  if (properties) {
+    return properties->getSpecificHeat(theta);
+  }
+  return 0.0;
+}
+
+// Evaluate the derivative of the specific heat w.r.t. theta
+TacsScalar TACSPlaneStressConstitutive::evalSpecificHeatTempSens(
+    int elemIndex, const double pt[], const TacsScalar X[], TacsScalar theta) {
+  if (properties) {
+    return properties->getSpecificHeatTempSens(theta);
+  }
+  return 0.0;
+}
+
+// Evaluate the stress at the temperature change theta
+void TACSPlaneStressConstitutive::evalStress(int elemIndex, const double pt[],
+                                             const TacsScalar X[],
+                                             TacsScalar theta,
+                                             const TacsScalar e[],
+                                             TacsScalar s[]) {
+  TacsScalar C[6];
+  if (properties) {
+    properties->evalTangentStiffness2D(theta, C);
+
+    s[0] = t * (C[0] * e[0] + C[1] * e[1] + C[2] * e[2]);
+    s[1] = t * (C[1] * e[0] + C[3] * e[1] + C[4] * e[2]);
+    s[2] = t * (C[2] * e[0] + C[4] * e[1] + C[5] * e[2]);
+  } else {
+    s[0] = s[1] = s[2] = 0.0;
+  }
+}
+
+// Evaluate the tangent stiffness at the temperature change theta
+void TACSPlaneStressConstitutive::evalTangentStiffness(int elemIndex,
+                                                       const double pt[],
+                                                       const TacsScalar X[],
+                                                       TacsScalar theta,
+                                                       TacsScalar C[]) {
+  if (properties) {
+    properties->evalTangentStiffness2D(theta, C);
+    C[0] *= t;
+    C[1] *= t;
+    C[2] *= t;
+    C[3] *= t;
+    C[4] *= t;
+    C[5] *= t;
+  } else {
+    C[0] = C[1] = C[2] = C[3] = C[4] = C[5] = 0.0;
+  }
+}
+
+// Add the derivative of the stress w.r.t. theta at a fixed strain
+void TACSPlaneStressConstitutive::addStressTempSens(
+    int elemIndex, TacsScalar scale, const double pt[], const TacsScalar X[],
+    TacsScalar theta, const TacsScalar e[], TacsScalar ds[]) {
+  if (properties) {
+    TacsScalar dC[6];
+    properties->evalTangentStiffness2DTempSens(theta, dC);
+
+    ds[0] += scale * t * (dC[0] * e[0] + dC[1] * e[1] + dC[2] * e[2]);
+    ds[1] += scale * t * (dC[1] * e[0] + dC[3] * e[1] + dC[4] * e[2]);
+    ds[2] += scale * t * (dC[2] * e[0] + dC[4] * e[1] + dC[5] * e[2]);
+  }
+}
+
+// Add the derivative of the stress w.r.t. design variables at theta
+void TACSPlaneStressConstitutive::addStressDVSens(
+    int elemIndex, TacsScalar scale, const double pt[], const TacsScalar X[],
+    TacsScalar theta, const TacsScalar e[], const TacsScalar psi[], int dvLen,
+    TacsScalar dfdx[]) {
+  if (properties && tNum >= 0) {
+    TacsScalar C[6];
+    properties->evalTangentStiffness2D(theta, C);
+
+    TacsScalar s[3];
+    s[0] = (C[0] * e[0] + C[1] * e[1] + C[2] * e[2]);
+    s[1] = (C[1] * e[0] + C[3] * e[1] + C[4] * e[2]);
+    s[2] = (C[2] * e[0] + C[4] * e[1] + C[5] * e[2]);
+
+    // Compute the derivative w.r.t. the design vector
+    dfdx[0] += scale * (s[0] * psi[0] + s[1] * psi[1] + s[2] * psi[2]);
+  }
+}
+
+// Evaluate the derivative of the thermal strain w.r.t. theta
+void TACSPlaneStressConstitutive::evalThermalStrainTempSens(
+    int elemIndex, const double pt[], const TacsScalar X[], TacsScalar theta,
+    TacsScalar de[]) {
+  if (properties) {
+    properties->evalThermalStrain2DTempSens(theta, de);
+  } else {
+    de[0] = de[1] = de[2] = 0.0;
+  }
+}
+
+// Evaluate the heat flux at the temperature change theta
+void TACSPlaneStressConstitutive::evalHeatFlux(int elemIndex, const double pt[],
+                                               const TacsScalar X[],
+                                               TacsScalar theta,
+                                               const TacsScalar grad[],
+                                               TacsScalar flux[]) {
+  if (properties) {
+    TacsScalar Kc[3];
+    properties->evalTangentHeatFlux2D(theta, Kc);
+    flux[0] = t * (Kc[0] * grad[0] + Kc[1] * grad[1]);
+    flux[1] = t * (Kc[1] * grad[0] + Kc[2] * grad[1]);
+  }
+}
+
+// Evaluate the tangent of the heat flux at the temperature change theta
+void TACSPlaneStressConstitutive::evalTangentHeatFlux(int elemIndex,
+                                                      const double pt[],
+                                                      const TacsScalar X[],
+                                                      TacsScalar theta,
+                                                      TacsScalar Kc[]) {
+  if (properties) {
+    properties->evalTangentHeatFlux2D(theta, Kc);
+    Kc[0] *= t;
+    Kc[1] *= t;
+    Kc[2] *= t;
+  }
+}
+
+// Add the derivative of the heat flux w.r.t. theta at a fixed gradient
+void TACSPlaneStressConstitutive::addHeatFluxTempSens(
+    int elemIndex, TacsScalar scale, const double pt[], const TacsScalar X[],
+    TacsScalar theta, const TacsScalar grad[], TacsScalar dflux[]) {
+  if (properties) {
+    TacsScalar dKc[3];
+    properties->evalTangentHeatFlux2DTempSens(theta, dKc);
+    dflux[0] += scale * t * (dKc[0] * grad[0] + dKc[1] * grad[1]);
+    dflux[1] += scale * t * (dKc[1] * grad[0] + dKc[2] * grad[1]);
+  }
+}
+
+// Add the derivative of the heat flux w.r.t. design variables at theta
+void TACSPlaneStressConstitutive::addHeatFluxDVSens(
+    int elemIndex, TacsScalar scale, const double pt[], const TacsScalar X[],
+    TacsScalar theta, const TacsScalar grad[], const TacsScalar psi[],
+    int dvLen, TacsScalar dfdx[]) {
+  if (properties && tNum >= 0) {
+    TacsScalar Kc[3];
+    properties->evalTangentHeatFlux2D(theta, Kc);
+    dfdx[0] += scale * (psi[0] * (Kc[0] * grad[0] + Kc[1] * grad[1]) +
+                        psi[1] * (Kc[1] * grad[0] + Kc[2] * grad[1]));
+  }
+}
+
+// Evaluate the material failure index at the temperature change theta
+TacsScalar TACSPlaneStressConstitutive::evalFailure(int elemIndex,
+                                                    const double pt[],
+                                                    const TacsScalar X[],
+                                                    TacsScalar theta,
+                                                    const TacsScalar e[]) {
+  if (properties) {
+    TacsScalar C[6];
+    properties->evalTangentStiffness2D(theta, C);
+
+    TacsScalar s[3];
+    s[0] = (C[0] * e[0] + C[1] * e[1] + C[2] * e[2]);
+    s[1] = (C[1] * e[0] + C[3] * e[1] + C[4] * e[2]);
+    s[2] = (C[2] * e[0] + C[4] * e[1] + C[5] * e[2]);
+
+    return properties->vonMisesFailure2D(s);
+  }
+  return 0.0;
+}
+
+// Evaluate the failure index and its strain derivative at theta
+TacsScalar TACSPlaneStressConstitutive::evalFailureStrainSens(
+    int elemIndex, const double pt[], const TacsScalar X[], TacsScalar theta,
+    const TacsScalar e[], TacsScalar dfde[]) {
+  if (properties) {
+    TacsScalar C[6];
+    properties->evalTangentStiffness2D(theta, C);
+
+    TacsScalar s[3];
+    s[0] = (C[0] * e[0] + C[1] * e[1] + C[2] * e[2]);
+    s[1] = (C[1] * e[0] + C[3] * e[1] + C[4] * e[2]);
+    s[2] = (C[2] * e[0] + C[4] * e[1] + C[5] * e[2]);
+
+    TacsScalar sens[3];
+    TacsScalar fail = properties->vonMisesFailure2DStressSens(s, sens);
+
+    dfde[0] = (C[0] * sens[0] + C[1] * sens[1] + C[2] * sens[2]);
+    dfde[1] = (C[1] * sens[0] + C[3] * sens[1] + C[4] * sens[2]);
+    dfde[2] = (C[2] * sens[0] + C[4] * sens[1] + C[5] * sens[2]);
+
+    return fail;
+  }
+  return 0.0;
+}
+
+// Evaluate the derivative of the failure index w.r.t. theta at fixed strain
+TacsScalar TACSPlaneStressConstitutive::evalFailureTempSens(
+    int elemIndex, const double pt[], const TacsScalar X[], TacsScalar theta,
+    const TacsScalar e[]) {
+  if (properties) {
+    TacsScalar C[6], dC[6];
+    properties->evalTangentStiffness2D(theta, C);
+    properties->evalTangentStiffness2DTempSens(theta, dC);
+
+    TacsScalar s[3];
+    s[0] = (C[0] * e[0] + C[1] * e[1] + C[2] * e[2]);
+    s[1] = (C[1] * e[0] + C[3] * e[1] + C[4] * e[2]);
+    s[2] = (C[2] * e[0] + C[4] * e[1] + C[5] * e[2]);
+
+    TacsScalar ds[3];
+    ds[0] = (dC[0] * e[0] + dC[1] * e[1] + dC[2] * e[2]);
+    ds[1] = (dC[1] * e[0] + dC[3] * e[1] + dC[4] * e[2]);
+    ds[2] = (dC[2] * e[0] + dC[4] * e[1] + dC[5] * e[2]);
+
+    TacsScalar sens[3];
+    properties->vonMisesFailure2DStressSens(s, sens);
+
+    return sens[0] * ds[0] + sens[1] * ds[1] + sens[2] * ds[2];
   }
   return 0.0;
 }

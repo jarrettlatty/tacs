@@ -598,6 +598,287 @@ class TACSConstitutive : public TACSObject {
     return 0.0;
   }
 
+  /*
+    Temperature-dependent constitutive evaluations
+
+    The following functions take the local temperature change theta (the
+    temperature state variable) as an additional argument so that the
+    constitutive properties may depend on temperature. The default
+    implementations ignore theta and call the corresponding
+    temperature-independent function, and the temperature derivatives
+    are zero, so constitutive classes that do not override these
+    functions behave exactly as before.
+
+    The "TempSens" functions return or add the partial derivative with
+    respect to theta, holding the strain or thermal gradient fixed.
+  */
+
+  /**
+    Check whether the constitutive properties depend on temperature
+
+    @return Flag indicating whether the properties depend on temperature
+  */
+  virtual int isTemperatureDependent() { return 0; }
+
+  /**
+    Evaluate the specific heat at the temperature change theta
+
+    @param elemIndex The local element index
+    @param pt The parametric location
+    @param X The point location
+    @param theta The local change in temperature
+    @return The specific heat of the material
+  */
+  virtual TacsScalar evalSpecificHeat(int elemIndex, const double pt[],
+                                      const TacsScalar X[], TacsScalar theta) {
+    return evalSpecificHeat(elemIndex, pt, X);
+  }
+
+  /**
+    Evaluate the derivative of the specific heat w.r.t. theta
+
+    @param elemIndex The local element index
+    @param pt The parametric location
+    @param X The point location
+    @param theta The local change in temperature
+    @return The derivative of the specific heat w.r.t. theta
+  */
+  virtual TacsScalar evalSpecificHeatTempSens(int elemIndex, const double pt[],
+                                              const TacsScalar X[],
+                                              TacsScalar theta) {
+    return 0.0;
+  }
+
+  /**
+    Add the derivative of the specific heat at theta times a scalar to the
+    design variable sensitivity array
+
+    @param elemIndex The local element index
+    @param scale Scale factor for the derivative
+    @param pt The parametric location
+    @param X The point location
+    @param theta The local change in temperature
+    @param dvLen The length of the sensitivity array
+    @param dfdx The sensitivity array
+  */
+  virtual void addSpecificHeatDVSens(int elemIndex, TacsScalar scale,
+                                     const double pt[], const TacsScalar X[],
+                                     TacsScalar theta, int dvLen,
+                                     TacsScalar dfdx[]) {
+    addSpecificHeatDVSens(elemIndex, scale, pt, X, dvLen, dfdx);
+  }
+
+  /**
+    Evaluate the stress at the temperature change theta
+
+    @param elemIndex The local element index
+    @param pt The parametric point within the element
+    @param X The physical point location
+    @param theta The local change in temperature
+    @param strain The (mechanical) strain evaluated at the point
+    @param stress The components of the stress
+  */
+  virtual void evalStress(int elemIndex, const double pt[],
+                          const TacsScalar X[], TacsScalar theta,
+                          const TacsScalar strain[], TacsScalar stress[]) {
+    evalStress(elemIndex, pt, X, strain, stress);
+  }
+
+  /**
+    Compute the tangent stiffness matrix at the temperature change theta
+
+    @param elemIndex The local element index
+    @param pt The parametric point within the element
+    @param X The physical point location
+    @param theta The local change in temperature
+    @param C The components of the tangent stiffness
+  */
+  virtual void evalTangentStiffness(int elemIndex, const double pt[],
+                                    const TacsScalar X[], TacsScalar theta,
+                                    TacsScalar C[]) {
+    evalTangentStiffness(elemIndex, pt, X, C);
+  }
+
+  /**
+    Add the derivative of the stress w.r.t. theta, at a fixed strain, times
+    a scalar: dstress += scale*d(stress)/d(theta)
+
+    @param elemIndex The local element index
+    @param scale Scale factor for the derivative
+    @param pt The parametric point within the element
+    @param X The physical point location
+    @param theta The local change in temperature
+    @param strain The (mechanical) strain evaluated at the point
+    @param dstress The stress derivative (same size as the stress)
+  */
+  virtual void addStressTempSens(int elemIndex, TacsScalar scale,
+                                 const double pt[], const TacsScalar X[],
+                                 TacsScalar theta, const TacsScalar strain[],
+                                 TacsScalar dstress[]) {}
+
+  /**
+    Add the derivative of the stress at theta times an input vector to the
+    design variable sensitivity array
+
+    @param elemIndex The local element index
+    @param scale Scale factor for the derivative
+    @param pt The parametric point within the element
+    @param X The physical point location
+    @param theta The local change in temperature
+    @param strain The (mechanical) strain evaluated at the point
+    @param psi Multiplier vector (same size as the strain)
+    @param dvLen The length of the sensitivity array
+    @param dfdx The sensitivity array
+  */
+  virtual void addStressDVSens(int elemIndex, TacsScalar scale,
+                               const double pt[], const TacsScalar X[],
+                               TacsScalar theta, const TacsScalar strain[],
+                               const TacsScalar psi[], int dvLen,
+                               TacsScalar dfdx[]) {
+    addStressDVSens(elemIndex, scale, pt, X, strain, psi, dvLen, dfdx);
+  }
+
+  /**
+    Evaluate the derivative of the thermal strain w.r.t. theta
+
+    The default uses the thermal strain at a unit temperature change, which
+    is exact when the thermal strain is linear in theta.
+
+    @param elemIndex The local element index
+    @param pt The parametric point within the element
+    @param X The physical point location
+    @param theta The local change in temperature
+    @param dstrain The derivative of the thermal strain w.r.t. theta
+  */
+  virtual void evalThermalStrainTempSens(int elemIndex, const double pt[],
+                                         const TacsScalar X[],
+                                         TacsScalar theta,
+                                         TacsScalar dstrain[]) {
+    evalThermalStrain(elemIndex, pt, X, 1.0, dstrain);
+  }
+
+  /**
+    Given the thermal gradient, compute the heat flux at theta
+
+    @param elemIndex The local element index
+    @param pt The parametric point within the element
+    @param X The physical point location
+    @param theta The local change in temperature
+    @param grad The thermal gradient
+    @param flux The heat flux
+  */
+  virtual void evalHeatFlux(int elemIndex, const double pt[],
+                            const TacsScalar X[], TacsScalar theta,
+                            const TacsScalar grad[], TacsScalar flux[]) {
+    evalHeatFlux(elemIndex, pt, X, grad, flux);
+  }
+
+  /**
+    Compute the coefficients of the heat flux at theta
+
+    @param elemIndex The local element index
+    @param pt The parametric point within the element
+    @param X The physical point location
+    @param theta The local change in temperature
+    @param C The tangent heat flux matrix
+  */
+  virtual void evalTangentHeatFlux(int elemIndex, const double pt[],
+                                   const TacsScalar X[], TacsScalar theta,
+                                   TacsScalar C[]) {
+    evalTangentHeatFlux(elemIndex, pt, X, C);
+  }
+
+  /**
+    Add the derivative of the heat flux w.r.t. theta, at a fixed thermal
+    gradient, times a scalar: dflux += scale*d(flux)/d(theta)
+
+    @param elemIndex The local element index
+    @param scale Scale factor for the derivative
+    @param pt The parametric point within the element
+    @param X The physical point location
+    @param theta The local change in temperature
+    @param grad The thermal gradient
+    @param dflux The heat flux derivative (same size as the flux)
+  */
+  virtual void addHeatFluxTempSens(int elemIndex, TacsScalar scale,
+                                   const double pt[], const TacsScalar X[],
+                                   TacsScalar theta, const TacsScalar grad[],
+                                   TacsScalar dflux[]) {}
+
+  /**
+    Add the derivative of the heat flux at theta to the sensitivity array
+
+    @param elemIndex The local element index
+    @param scale A scalar factor
+    @param pt The parametric point within the element
+    @param X The physical point location
+    @param theta The local change in temperature
+    @param grad The thermal gradient
+    @param psi Multiplier vector (same size as the flux)
+    @param dvLen The length of the sensitivity array
+    @param dfdx The sensitivity
+  */
+  virtual void addHeatFluxDVSens(int elemIndex, TacsScalar scale,
+                                 const double pt[], const TacsScalar X[],
+                                 TacsScalar theta, const TacsScalar grad[],
+                                 const TacsScalar psi[], int dvLen,
+                                 TacsScalar dfdx[]) {
+    addHeatFluxDVSens(elemIndex, scale, pt, X, grad, psi, dvLen, dfdx);
+  }
+
+  /**
+    Evaluate the failure index at theta
+
+    @param elemIndex The local element index
+    @param pt The parametric point
+    @param X The physical node location
+    @param theta The local change in temperature
+    @param strain The (mechanical) strain value
+    @return The failure index value
+  */
+  virtual TacsScalar evalFailure(int elemIndex, const double pt[],
+                                 const TacsScalar X[], TacsScalar theta,
+                                 const TacsScalar strain[]) {
+    return evalFailure(elemIndex, pt, X, strain);
+  }
+
+  /**
+    Evaluate the failure index at theta and its derivative w.r.t. strain
+
+    @param elemIndex The local element index
+    @param pt The parametric point
+    @param X The physical node location
+    @param theta The local change in temperature
+    @param strain The (mechanical) strain value
+    @param sens The derivative of the failure index w.r.t. the strain
+    @return The failure index value
+  */
+  virtual TacsScalar evalFailureStrainSens(int elemIndex, const double pt[],
+                                           const TacsScalar X[],
+                                           TacsScalar theta,
+                                           const TacsScalar strain[],
+                                           TacsScalar sens[]) {
+    return evalFailureStrainSens(elemIndex, pt, X, strain, sens);
+  }
+
+  /**
+    Evaluate the derivative of the failure index w.r.t. theta at a fixed
+    strain
+
+    @param elemIndex The local element index
+    @param pt The parametric point
+    @param X The physical node location
+    @param theta The local change in temperature
+    @param strain The (mechanical) strain value
+    @return The derivative of the failure index w.r.t. theta
+  */
+  virtual TacsScalar evalFailureTempSens(int elemIndex, const double pt[],
+                                         const TacsScalar X[],
+                                         TacsScalar theta,
+                                         const TacsScalar strain[]) {
+    return 0.0;
+  }
+
   /**
     Compute a two-dimensional representation of the failure envelope
   */

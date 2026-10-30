@@ -2222,6 +2222,297 @@ int TacsTestElementModelAdjXptSensProduct(TACSElementModel *model,
   return fail;
 }
 
+int TacsTestElementModelQuantitySens(TACSElementModel *model, int elemIndex,
+                                     int quantityType, const double time,
+                                     double dh, int test_print_level,
+                                     double test_fail_atol,
+                                     double test_fail_rtol) {
+  int fail = 0;
+
+  const int vars_per_node = model->getVarsPerNode();
+  const int num_params = model->getNumParameters();
+
+  // Set the quadrature point
+  const int n = 0;
+  const double pt[3] = {-0.125, 0.383, -0.233};
+
+  // Fill in this data with random numbers...
+  TacsScalar X[3], Xd[9];
+  TacsGenerateRandomArray(X, 3);
+  TacsGenerateRandomArray(Xd, 9);
+
+  TacsScalar Ut[3 * MAX_VARS_PER_NODE], Ux[3 * MAX_VARS_PER_NODE];
+  TacsGenerateRandomArray(Ut, 3 * vars_per_node);
+  TacsGenerateRandomArray(Ux, num_params * vars_per_node);
+
+  // Query the number of components in the quantity. A value of zero
+  // means the quantity is not supported by the model.
+  int nq = model->evalPointQuantity(elemIndex, quantityType, time, n, pt, X,
+                                    Xd, Ut, Ux, NULL);
+  if (nq == 0) {
+    return 0;
+  }
+  if (nq > 9) {
+    fprintf(stderr, "Point quantity %d has length %d greater than 9\n",
+            quantityType, nq);
+    return 1;
+  }
+
+  TacsScalar dfdq[9];
+  TacsGenerateRandomArray(dfdq, nq);
+
+  // Evaluate the quantity and the function f = dfdq . q at the base point
+  TacsScalar q[9], pq[9];
+  model->evalPointQuantity(elemIndex, quantityType, time, n, pt, X, Xd, Ut, Ux,
+                           q);
+  TacsScalar f = 0.0;
+  for (int k = 0; k < nq; k++) {
+    f += dfdq[k] * q[k];
+  }
+
+  // Evaluate the analytic derivatives
+  TacsScalar dfdX[3], dfdXd[9];
+  TacsScalar dfdUt[3 * MAX_VARS_PER_NODE], dfdUx[3 * MAX_VARS_PER_NODE];
+  model->evalPointQuantitySens(elemIndex, quantityType, time, n, pt, X, Xd, Ut,
+                               Ux, dfdq, dfdX, dfdXd, dfdUt, dfdUx);
+
+  // Approximate the derivative with respect to Ut
+  TacsScalar fdUt[3 * MAX_VARS_PER_NODE];
+  for (int k = 0; k < 3 * vars_per_node; k++) {
+    TacsScalar pUt[3 * MAX_VARS_PER_NODE];
+    memcpy(pUt, Ut, 3 * vars_per_node * sizeof(TacsScalar));
+
+#ifdef TACS_USE_COMPLEX
+    pUt[k] = Ut[k] + TacsScalar(0.0, dh);
+#else
+    pUt[k] = Ut[k] + dh;
+#endif  // TACS_USE_COMPLEX
+
+    model->evalPointQuantity(elemIndex, quantityType, time, n, pt, X, Xd, pUt,
+                             Ux, pq);
+
+    TacsScalar pf = 0.0;
+    for (int m = 0; m < nq; m++) {
+      pf += dfdq[m] * pq[m];
+    }
+
+#ifdef TACS_USE_COMPLEX
+    fdUt[k] = TacsImagPart(pf) / dh;
+#else
+    fdUt[k] = (pf - f) / dh;
+#endif  // TACS_USE_COMPLEX
+  }
+
+  // Approximate the derivative with respect to Ux
+  TacsScalar fdUx[3 * MAX_VARS_PER_NODE];
+  for (int k = 0; k < num_params * vars_per_node; k++) {
+    TacsScalar pUx[3 * MAX_VARS_PER_NODE];
+    memcpy(pUx, Ux, num_params * vars_per_node * sizeof(TacsScalar));
+
+#ifdef TACS_USE_COMPLEX
+    pUx[k] = Ux[k] + TacsScalar(0.0, dh);
+#else
+    pUx[k] = Ux[k] + dh;
+#endif  // TACS_USE_COMPLEX
+
+    model->evalPointQuantity(elemIndex, quantityType, time, n, pt, X, Xd, Ut,
+                             pUx, pq);
+
+    TacsScalar pf = 0.0;
+    for (int m = 0; m < nq; m++) {
+      pf += dfdq[m] * pq[m];
+    }
+
+#ifdef TACS_USE_COMPLEX
+    fdUx[k] = TacsImagPart(pf) / dh;
+#else
+    fdUx[k] = (pf - f) / dh;
+#endif  // TACS_USE_COMPLEX
+  }
+
+  // Approximate the derivative with respect to X
+  TacsScalar fdX[3];
+  for (int k = 0; k < 3; k++) {
+    TacsScalar pX[3];
+    memcpy(pX, X, 3 * sizeof(TacsScalar));
+
+#ifdef TACS_USE_COMPLEX
+    pX[k] = X[k] + TacsScalar(0.0, dh);
+#else
+    pX[k] = X[k] + dh;
+#endif  // TACS_USE_COMPLEX
+
+    model->evalPointQuantity(elemIndex, quantityType, time, n, pt, pX, Xd, Ut,
+                             Ux, pq);
+
+    TacsScalar pf = 0.0;
+    for (int m = 0; m < nq; m++) {
+      pf += dfdq[m] * pq[m];
+    }
+
+#ifdef TACS_USE_COMPLEX
+    fdX[k] = TacsImagPart(pf) / dh;
+#else
+    fdX[k] = (pf - f) / dh;
+#endif  // TACS_USE_COMPLEX
+  }
+
+  int max_err_index, max_rel_index;
+  double max_err = 0.0, max_rel = 0.0;
+
+  max_err = TacsGetMaxError(dfdUt, fdUt, 3 * vars_per_node, &max_err_index);
+  max_rel = TacsGetMaxRelError(dfdUt, fdUt, 3 * vars_per_node, &max_rel_index);
+
+  if (test_print_level > 0) {
+    fprintf(stderr,
+            "Testing the derivative of the point quantity %d w.r.t. Ut for "
+            "model %s\n",
+            quantityType, model->getObjectName());
+    fprintf(stderr, "Max Err: %10.4e in component %d.\n", max_err,
+            max_err_index);
+    fprintf(stderr, "Max REr: %10.4e in component %d.\n", max_rel,
+            max_rel_index);
+  }
+  // Print the error if required
+  if (test_print_level > 1) {
+    TacsPrintErrorComponents(stderr, "dfdUt", dfdUt, fdUt, 3 * vars_per_node);
+  }
+  if (test_print_level) {
+    fprintf(stderr, "\n");
+  }
+
+  fail = fail || !TacsAssertAllClose(dfdUt, fdUt, 3 * vars_per_node,
+                                     test_fail_atol, test_fail_rtol);
+
+  max_err = TacsGetMaxError(dfdUx, fdUx, num_params * vars_per_node,
+                            &max_err_index);
+  max_rel = TacsGetMaxRelError(dfdUx, fdUx, num_params * vars_per_node,
+                               &max_rel_index);
+
+  if (test_print_level > 0) {
+    fprintf(stderr,
+            "Testing the derivative of the point quantity %d w.r.t. Ux for "
+            "model %s\n",
+            quantityType, model->getObjectName());
+    fprintf(stderr, "Max Err: %10.4e in component %d.\n", max_err,
+            max_err_index);
+    fprintf(stderr, "Max REr: %10.4e in component %d.\n", max_rel,
+            max_rel_index);
+  }
+  // Print the error if required
+  if (test_print_level > 1) {
+    TacsPrintErrorComponents(stderr, "dfdUx", dfdUx, fdUx,
+                             num_params * vars_per_node);
+  }
+  if (test_print_level) {
+    fprintf(stderr, "\n");
+  }
+
+  fail = fail || !TacsAssertAllClose(dfdUx, fdUx, num_params * vars_per_node,
+                                     test_fail_atol, test_fail_rtol);
+
+  max_err = TacsGetMaxError(dfdX, fdX, 3, &max_err_index);
+  max_rel = TacsGetMaxRelError(dfdX, fdX, 3, &max_rel_index);
+
+  if (test_print_level > 0) {
+    fprintf(stderr,
+            "Testing the derivative of the point quantity %d w.r.t. X for "
+            "model %s\n",
+            quantityType, model->getObjectName());
+    fprintf(stderr, "Max Err: %10.4e in component %d.\n", max_err,
+            max_err_index);
+    fprintf(stderr, "Max REr: %10.4e in component %d.\n", max_rel,
+            max_rel_index);
+  }
+  // Print the error if required
+  if (test_print_level > 1) {
+    TacsPrintErrorComponents(stderr, "dfdX", dfdX, fdX, 3);
+  }
+  if (test_print_level) {
+    fprintf(stderr, "\n");
+  }
+
+  fail =
+      fail || !TacsAssertAllClose(dfdX, fdX, 3, test_fail_atol, test_fail_rtol);
+
+  // Design variable sensitivities, if the model has design variables
+  int ndvs = model->getDesignVarNums(elemIndex, 0, NULL);
+  int dvLen = model->getDesignVarsPerNode() * ndvs;
+  if (dvLen > 0) {
+    TacsScalar *dvs = new TacsScalar[dvLen];
+    TacsScalar *pdvs = new TacsScalar[dvLen];
+    TacsScalar *dfdx = new TacsScalar[dvLen];
+    TacsScalar *fdx = new TacsScalar[dvLen];
+
+    model->getDesignVars(elemIndex, dvLen, dvs);
+
+    // Evaluate the analytic derivative with respect to the design variables
+    memset(dfdx, 0, dvLen * sizeof(TacsScalar));
+    model->addPointQuantityDVSens(elemIndex, quantityType, time, 1.0, n, pt, X,
+                                  Xd, Ut, Ux, dfdq, dvLen, dfdx);
+
+    // Approximate the derivative with respect to each design variable
+    for (int k = 0; k < dvLen; k++) {
+      memcpy(pdvs, dvs, dvLen * sizeof(TacsScalar));
+
+#ifdef TACS_USE_COMPLEX
+      pdvs[k] = dvs[k] + TacsScalar(0.0, dh);
+#else
+      pdvs[k] = dvs[k] + dh;
+#endif  // TACS_USE_COMPLEX
+
+      model->setDesignVars(elemIndex, dvLen, pdvs);
+      model->evalPointQuantity(elemIndex, quantityType, time, n, pt, X, Xd, Ut,
+                               Ux, pq);
+
+      TacsScalar pf = 0.0;
+      for (int m = 0; m < nq; m++) {
+        pf += dfdq[m] * pq[m];
+      }
+
+#ifdef TACS_USE_COMPLEX
+      fdx[k] = TacsImagPart(pf) / dh;
+#else
+      fdx[k] = (pf - f) / dh;
+#endif  // TACS_USE_COMPLEX
+    }
+
+    // Restore the design variables
+    model->setDesignVars(elemIndex, dvLen, dvs);
+
+    max_err = TacsGetMaxError(dfdx, fdx, dvLen, &max_err_index);
+    max_rel = TacsGetMaxRelError(dfdx, fdx, dvLen, &max_rel_index);
+
+    if (test_print_level > 0) {
+      fprintf(stderr,
+              "Testing the derivative of the point quantity %d w.r.t. the "
+              "design variables for model %s\n",
+              quantityType, model->getObjectName());
+      fprintf(stderr, "Max Err: %10.4e in component %d.\n", max_err,
+              max_err_index);
+      fprintf(stderr, "Max REr: %10.4e in component %d.\n", max_rel,
+              max_rel_index);
+    }
+    // Print the error if required
+    if (test_print_level > 1) {
+      TacsPrintErrorComponents(stderr, "dfdx", dfdx, fdx, dvLen);
+    }
+    if (test_print_level) {
+      fprintf(stderr, "\n");
+    }
+
+    fail = fail || !TacsAssertAllClose(dfdx, fdx, dvLen, test_fail_atol,
+                                       test_fail_rtol);
+
+    delete[] dvs;
+    delete[] pdvs;
+    delete[] dfdx;
+    delete[] fdx;
+  }
+
+  return fail;
+}
+
 /*
   Test the derivative of the inner product of the adjoint vector and
   the residual with respect to material design variables.

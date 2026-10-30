@@ -60,6 +60,13 @@ TACSMaterialProperties::TACSMaterialProperties(
   kappa1 = kappa;
 
   mat_type = TACS_ISOTROPIC_MATERIAL;
+
+  // No temperature-dependent properties by default
+  for (int k = 0; k < TACS_NUM_TEMP_DEP_PROPERTIES; k++) {
+    temp_npts[k] = 0;
+    temp_T[k] = NULL;
+    temp_vals[k] = NULL;
+  }
 }
 
 TACSMaterialProperties::TACSMaterialProperties(
@@ -126,6 +133,25 @@ TACSMaterialProperties::TACSMaterialProperties(
   kappa1 = _kappa1;
   kappa2 = _kappa2;
   kappa3 = _kappa3;
+
+  // Temperature-dependent properties are only supported for isotropic
+  // materials, but initialize the storage for consistency
+  for (int k = 0; k < TACS_NUM_TEMP_DEP_PROPERTIES; k++) {
+    temp_npts[k] = 0;
+    temp_T[k] = NULL;
+    temp_vals[k] = NULL;
+  }
+}
+
+TACSMaterialProperties::~TACSMaterialProperties() {
+  for (int k = 0; k < TACS_NUM_TEMP_DEP_PROPERTIES; k++) {
+    if (temp_T[k]) {
+      delete[] temp_T[k];
+    }
+    if (temp_vals[k]) {
+      delete[] temp_vals[k];
+    }
+  }
 }
 
 // Get the material type
@@ -498,6 +524,393 @@ TacsScalar TACSMaterialProperties::vonMisesFailure2DStressSens(
   }
 
   return fail / ys;
+}
+
+/*
+  Set a piecewise-linear table of property values versus the temperature
+  change theta = T - Tref. The temperature changes must be strictly
+  increasing. Only isotropic materials are supported.
+*/
+int TACSMaterialProperties::setTemperatureDependentProperty(
+    TemperatureDependentProperty prop, int npts, const TacsScalar theta[],
+    const TacsScalar vals[]) {
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    return 1;
+  }
+  if (prop < 0 || prop >= TACS_NUM_TEMP_DEP_PROPERTIES) {
+    return 1;
+  }
+  if (npts < 1 || !theta || !vals) {
+    return 1;
+  }
+  for (int i = 0; i < npts - 1; i++) {
+    if (TacsRealPart(theta[i + 1]) <= TacsRealPart(theta[i])) {
+      return 1;
+    }
+  }
+
+  if (temp_T[prop]) {
+    delete[] temp_T[prop];
+  }
+  if (temp_vals[prop]) {
+    delete[] temp_vals[prop];
+  }
+
+  temp_npts[prop] = npts;
+  temp_T[prop] = new TacsScalar[npts];
+  temp_vals[prop] = new TacsScalar[npts];
+  memcpy(temp_T[prop], theta, npts * sizeof(TacsScalar));
+  memcpy(temp_vals[prop], vals, npts * sizeof(TacsScalar));
+
+  return 0;
+}
+
+/*
+  Get the table for a temperature-dependent property. Returns the number
+  of points in the table, or zero if no table is set.
+*/
+int TACSMaterialProperties::getTemperatureDependentProperty(
+    TemperatureDependentProperty prop, const TacsScalar **T,
+    const TacsScalar **vals) {
+  int npts = 0;
+  const TacsScalar *Tp = NULL, *vp = NULL;
+  if (prop >= 0 && prop < TACS_NUM_TEMP_DEP_PROPERTIES) {
+    npts = temp_npts[prop];
+    Tp = temp_T[prop];
+    vp = temp_vals[prop];
+  }
+  if (T) {
+    *T = Tp;
+  }
+  if (vals) {
+    *vals = vp;
+  }
+  return npts;
+}
+
+int TACSMaterialProperties::isTemperatureDependent() {
+  for (int k = 0; k < TACS_NUM_TEMP_DEP_PROPERTIES; k++) {
+    if (temp_npts[k] > 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int TACSMaterialProperties::isTemperatureDependent(
+    TemperatureDependentProperty prop) {
+  if (prop >= 0 && prop < TACS_NUM_TEMP_DEP_PROPERTIES) {
+    return (temp_npts[prop] > 0);
+  }
+  return 0;
+}
+
+/*
+  Evaluate a property at the temperature change theta = T - Tref.
+
+  Properties without a table return their constant value. Within the
+  table the value is interpolated linearly and the derivative is the
+  slope of the segment containing theta, where segment i covers
+  theta[i] <= theta < theta[i+1]. Outside the table the end values are
+  held constant and the derivative is zero.
+
+  FUTURE WORK: The piecewise-linear interpolant has a discontinuous
+  derivative at the table breakpoints and a zero derivative outside the
+  table range. If the Newton solver or the adjoint/sensitivity path has
+  difficulty with this, replace this evaluation with a smoothed (e.g. C1
+  spline) interpolant. All temperature-dependent evaluations go through
+  this function.
+*/
+TacsScalar TACSMaterialProperties::evalTemperatureDependentProperty(
+    TemperatureDependentProperty prop, TacsScalar theta, TacsScalar *dvdT) {
+  if (dvdT) {
+    *dvdT = 0.0;
+  }
+
+  int npts = 0;
+  if (prop >= 0 && prop < TACS_NUM_TEMP_DEP_PROPERTIES) {
+    npts = temp_npts[prop];
+  }
+
+  // Return the constant property value if there is no table
+  if (npts == 0) {
+    if (prop == TACS_TEMP_DEP_E) {
+      return E;
+    } else if (prop == TACS_TEMP_DEP_NU) {
+      return nu;
+    } else if (prop == TACS_TEMP_DEP_ALPHA) {
+      return alpha;
+    } else if (prop == TACS_TEMP_DEP_KAPPA) {
+      return kappa;
+    } else if (prop == TACS_TEMP_DEP_SPECIFIC_HEAT) {
+      return specific_heat;
+    }
+    return 0.0;
+  }
+
+  const TacsScalar *Tt = temp_T[prop];
+  const TacsScalar *vt = temp_vals[prop];
+  TacsScalar T = theta;
+  double Treal = TacsRealPart(T);
+
+  // Hold the end values constant outside the table range
+  if (Treal < TacsRealPart(Tt[0])) {
+    return vt[0];
+  } else if (Treal >= TacsRealPart(Tt[npts - 1])) {
+    return vt[npts - 1];
+  }
+
+  // Find the segment such that Tt[low] <= T < Tt[low + 1]
+  int low = 0, high = npts - 1;
+  while (high - low > 1) {
+    int mid = (low + high) / 2;
+    if (Treal >= TacsRealPart(Tt[mid])) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+
+  TacsScalar slope = (vt[low + 1] - vt[low]) / (Tt[low + 1] - Tt[low]);
+  if (dvdT) {
+    *dvdT = slope;
+  }
+  return vt[low] + slope * (T - Tt[low]);
+}
+
+void TACSMaterialProperties::evalIsotropicProperties(TacsScalar theta,
+                                                     TacsScalar *_E,
+                                                     TacsScalar *_nu,
+                                                     TacsScalar *dE,
+                                                     TacsScalar *dnu) {
+  *_E = evalTemperatureDependentProperty(TACS_TEMP_DEP_E, theta, dE);
+  *_nu = evalTemperatureDependentProperty(TACS_TEMP_DEP_NU, theta, dnu);
+}
+
+TacsScalar TACSMaterialProperties::getSpecificHeat(TacsScalar theta) {
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    return specific_heat;
+  }
+  return evalTemperatureDependentProperty(TACS_TEMP_DEP_SPECIFIC_HEAT, theta);
+}
+
+TacsScalar TACSMaterialProperties::getSpecificHeatTempSens(TacsScalar theta) {
+  TacsScalar dcdT = 0.0;
+  if (mat_type == TACS_ISOTROPIC_MATERIAL) {
+    evalTemperatureDependentProperty(TACS_TEMP_DEP_SPECIFIC_HEAT, theta,
+                                     &dcdT);
+  }
+  return dcdT;
+}
+
+void TACSMaterialProperties::evalTangentStiffness3D(TacsScalar theta,
+                                                    TacsScalar C[]) {
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    evalTangentStiffness3D(C);
+    return;
+  }
+
+  TacsScalar Et, nut;
+  evalIsotropicProperties(theta, &Et, &nut);
+  TacsScalar D = Et / ((1.0 + nut) * (1.0 - 2.0 * nut));
+  TacsScalar Gt = 0.5 * Et / (1.0 + nut);
+
+  C[0] = (1.0 - nut) * D;
+  C[1] = nut * D;
+  C[2] = nut * D;
+  C[3] = C[4] = C[5] = 0.0;
+
+  C[6] = (1.0 - nut) * D;
+  C[7] = nut * D;
+  C[8] = C[9] = C[10] = 0.0;
+
+  C[11] = (1.0 - nut) * D;
+  C[12] = C[13] = C[14] = 0.0;
+
+  C[15] = Gt;
+  C[16] = C[17] = 0.0;
+
+  C[18] = Gt;
+  C[19] = 0.0;
+
+  C[20] = Gt;
+}
+
+void TACSMaterialProperties::evalTangentStiffness3DTempSens(TacsScalar theta,
+                                                            TacsScalar dC[]) {
+  memset(dC, 0, 21 * sizeof(TacsScalar));
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    return;
+  }
+
+  TacsScalar Et, nut, dE, dnu;
+  evalIsotropicProperties(theta, &Et, &nut, &dE, &dnu);
+
+  // D = E/f with f = (1 + nu)*(1 - 2*nu) and df/dnu = -(1 + 4*nu)
+  TacsScalar f = (1.0 + nut) * (1.0 - 2.0 * nut);
+  TacsScalar D = Et / f;
+  TacsScalar dD = dE / f + Et * (1.0 + 4.0 * nut) * dnu / (f * f);
+  TacsScalar dG =
+      0.5 * (dE * (1.0 + nut) - Et * dnu) / ((1.0 + nut) * (1.0 + nut));
+
+  TacsScalar dC0 = (1.0 - nut) * dD - dnu * D;
+  TacsScalar dC1 = nut * dD + dnu * D;
+
+  dC[0] = dC[6] = dC[11] = dC0;
+  dC[1] = dC[2] = dC[7] = dC1;
+  dC[15] = dC[18] = dC[20] = dG;
+}
+
+void TACSMaterialProperties::evalTangentStiffness2D(TacsScalar theta,
+                                                    TacsScalar C[]) {
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    evalTangentStiffness2D(C);
+    return;
+  }
+
+  TacsScalar Et, nut;
+  evalIsotropicProperties(theta, &Et, &nut);
+  TacsScalar D = Et / (1.0 - nut * nut);
+  C[0] = D;
+  C[1] = nut * D;
+  C[2] = 0.0;
+  C[3] = D;
+  C[4] = 0.0;
+  C[5] = 0.5 * Et / (1.0 + nut);
+}
+
+void TACSMaterialProperties::evalTangentStiffness2DTempSens(TacsScalar theta,
+                                                            TacsScalar dC[]) {
+  memset(dC, 0, 6 * sizeof(TacsScalar));
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    return;
+  }
+
+  TacsScalar Et, nut, dE, dnu;
+  evalIsotropicProperties(theta, &Et, &nut, &dE, &dnu);
+
+  // D = E/f with f = 1 - nu^2 and df/dnu = -2*nu
+  TacsScalar f = 1.0 - nut * nut;
+  TacsScalar D = Et / f;
+  TacsScalar dD = dE / f + 2.0 * Et * nut * dnu / (f * f);
+
+  dC[0] = dD;
+  dC[1] = nut * dD + dnu * D;
+  dC[3] = dD;
+  dC[5] = 0.5 * (dE * (1.0 + nut) - Et * dnu) / ((1.0 + nut) * (1.0 + nut));
+}
+
+void TACSMaterialProperties::evalTangentHeatFlux3D(TacsScalar theta,
+                                                   TacsScalar Kc[]) {
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    evalTangentHeatFlux3D(Kc);
+    return;
+  }
+
+  TacsScalar kt = evalTemperatureDependentProperty(TACS_TEMP_DEP_KAPPA, theta);
+  Kc[0] = Kc[3] = Kc[5] = kt;
+  Kc[1] = Kc[2] = Kc[4] = 0.0;
+}
+
+void TACSMaterialProperties::evalTangentHeatFlux3DTempSens(TacsScalar theta,
+                                                           TacsScalar dKc[]) {
+  memset(dKc, 0, 6 * sizeof(TacsScalar));
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    return;
+  }
+
+  TacsScalar dk;
+  evalTemperatureDependentProperty(TACS_TEMP_DEP_KAPPA, theta, &dk);
+  dKc[0] = dKc[3] = dKc[5] = dk;
+}
+
+void TACSMaterialProperties::evalTangentHeatFlux2D(TacsScalar theta,
+                                                   TacsScalar Kc[]) {
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    evalTangentHeatFlux2D(Kc);
+    return;
+  }
+
+  TacsScalar kt = evalTemperatureDependentProperty(TACS_TEMP_DEP_KAPPA, theta);
+  Kc[0] = Kc[2] = kt;
+  Kc[1] = 0.0;
+}
+
+void TACSMaterialProperties::evalTangentHeatFlux2DTempSens(TacsScalar theta,
+                                                           TacsScalar dKc[]) {
+  memset(dKc, 0, 3 * sizeof(TacsScalar));
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    return;
+  }
+
+  TacsScalar dk;
+  evalTemperatureDependentProperty(TACS_TEMP_DEP_KAPPA, theta, &dk);
+  dKc[0] = dKc[2] = dk;
+}
+
+/*
+  Evaluate the secant thermal strain alpha(theta)*theta
+*/
+void TACSMaterialProperties::evalThermalStrain3D(TacsScalar theta,
+                                                 TacsScalar e[]) {
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    evalThermalStrain3D(e);
+    for (int i = 0; i < 6; i++) {
+      e[i] *= theta;
+    }
+    return;
+  }
+
+  TacsScalar at = evalTemperatureDependentProperty(TACS_TEMP_DEP_ALPHA, theta);
+  e[0] = e[1] = e[2] = at * theta;
+  e[3] = e[4] = e[5] = 0.0;
+}
+
+/*
+  Evaluate d/dtheta of the secant thermal strain:
+  alpha'(theta)*theta + alpha(theta)
+*/
+void TACSMaterialProperties::evalThermalStrain3DTempSens(TacsScalar theta,
+                                                         TacsScalar de[]) {
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    evalThermalStrain3D(de);
+    return;
+  }
+
+  TacsScalar da;
+  TacsScalar at =
+      evalTemperatureDependentProperty(TACS_TEMP_DEP_ALPHA, theta, &da);
+  de[0] = de[1] = de[2] = da * theta + at;
+  de[3] = de[4] = de[5] = 0.0;
+}
+
+void TACSMaterialProperties::evalThermalStrain2D(TacsScalar theta,
+                                                 TacsScalar e[]) {
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    evalThermalStrain2D(e);
+    for (int i = 0; i < 3; i++) {
+      e[i] *= theta;
+    }
+    return;
+  }
+
+  TacsScalar at = evalTemperatureDependentProperty(TACS_TEMP_DEP_ALPHA, theta);
+  e[0] = e[1] = at * theta;
+  e[2] = 0.0;
+}
+
+void TACSMaterialProperties::evalThermalStrain2DTempSens(TacsScalar theta,
+                                                         TacsScalar de[]) {
+  if (mat_type != TACS_ISOTROPIC_MATERIAL) {
+    evalThermalStrain2D(de);
+    return;
+  }
+
+  TacsScalar da;
+  TacsScalar at =
+      evalTemperatureDependentProperty(TACS_TEMP_DEP_ALPHA, theta, &da);
+  de[0] = de[1] = da * theta + at;
+  de[2] = 0.0;
 }
 
 /*

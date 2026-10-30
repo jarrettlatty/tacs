@@ -29,6 +29,19 @@
 
 enum MaterialType { TACS_ISOTROPIC_MATERIAL, TACS_ANISOTROPIC_MATERIAL };
 
+/*
+  The isotropic material properties that may be given a dependence on
+  temperature through a piecewise-linear table.
+*/
+enum TemperatureDependentProperty {
+  TACS_TEMP_DEP_E = 0,
+  TACS_TEMP_DEP_NU,
+  TACS_TEMP_DEP_ALPHA,
+  TACS_TEMP_DEP_KAPPA,
+  TACS_TEMP_DEP_SPECIFIC_HEAT,
+  TACS_NUM_TEMP_DEP_PROPERTIES
+};
+
 /**
    This class stores the mechanical and thermal material properties for
    isotropic and anisotropic materials.
@@ -38,6 +51,25 @@ enum MaterialType { TACS_ISOTROPIC_MATERIAL, TACS_ANISOTROPIC_MATERIAL };
    plane stress and solid elements. The minimum set of properties
    consists of isotropic mechanical properties, with zero thermal
    expansion.
+
+   Temperature-dependent properties (isotropic materials only):
+
+   The properties E, nu, alpha, kappa and the specific heat may each be
+   given a piecewise-linear table of values versus the temperature change
+   theta = T - Tref, the quantity used as the temperature state variable
+   in TACS. The tables are therefore defined relative to the reference
+   (stress-free) temperature, and the user is responsible for subtracting
+   Tref from absolute temperatures.
+
+   The thermal strain uses the secant definition
+
+   e_th = alpha(T)*(T - Tref) = alpha(theta)*theta
+
+   which reduces to alpha*theta when alpha is constant.
+
+   Properties without a table use their constant value. The member
+   functions that do not take theta are unchanged and always return the
+   constant values.
 */
 class TACSMaterialProperties : public TACSObject {
  public:
@@ -56,7 +88,7 @@ class TACSMaterialProperties : public TACSObject {
       TacsScalar _kappa2 = 0.0, TacsScalar _kappa3 = 0.0,
       TacsScalar _b_tt = 0.0, TacsScalar _b_tl = 0.0, TacsScalar _muWF = 0.0,
       TacsScalar _mu3W = 0.0, TacsScalar _mu3F = 0.0, TacsScalar _m = 0.0);
-  ~TACSMaterialProperties() {}
+  ~TACSMaterialProperties();
 
   // Get the material type
   MaterialType getMaterialType();
@@ -114,7 +146,54 @@ class TACSMaterialProperties : public TACSObject {
   TacsScalar vonMisesFailure2DStressSens(const TacsScalar stress[],
                                          TacsScalar sens[]);
 
+  // Set the temperature-dependent property tables, given versus the
+  // temperature change theta. These return a non-zero fail flag if the
+  // material is not isotropic or the table is invalid.
+  int setTemperatureDependentProperty(TemperatureDependentProperty prop,
+                                      int npts, const TacsScalar theta[],
+                                      const TacsScalar vals[]);
+  int getTemperatureDependentProperty(TemperatureDependentProperty prop,
+                                      const TacsScalar **theta,
+                                      const TacsScalar **vals);
+  int isTemperatureDependent();
+  int isTemperatureDependent(TemperatureDependentProperty prop);
+
+  // Evaluate a property at the temperature change theta and, optionally,
+  // its derivative with respect to temperature
+  TacsScalar evalTemperatureDependentProperty(TemperatureDependentProperty prop,
+                                              TacsScalar theta,
+                                              TacsScalar *dvdT = NULL);
+
+  // Temperature-dependent property evaluations at the temperature change
+  // theta
+  TacsScalar getSpecificHeat(TacsScalar theta);
+  void evalTangentStiffness3D(TacsScalar theta, TacsScalar C[]);
+  void evalTangentStiffness2D(TacsScalar theta, TacsScalar C[]);
+  void evalTangentHeatFlux3D(TacsScalar theta, TacsScalar Kc[]);
+  void evalTangentHeatFlux2D(TacsScalar theta, TacsScalar Kc[]);
+
+  // Evaluate the full thermal strain alpha(theta)*theta. Note that
+  // this differs from evalThermalStrain3D/2D(e), which return the
+  // coefficients of thermal expansion that are then scaled by theta.
+  void evalThermalStrain3D(TacsScalar theta, TacsScalar e[]);
+  void evalThermalStrain2D(TacsScalar theta, TacsScalar e[]);
+
+  // Derivatives of the temperature-dependent evaluations with respect to
+  // theta (equivalently, with respect to T)
+  TacsScalar getSpecificHeatTempSens(TacsScalar theta);
+  void evalTangentStiffness3DTempSens(TacsScalar theta, TacsScalar dC[]);
+  void evalTangentStiffness2DTempSens(TacsScalar theta, TacsScalar dC[]);
+  void evalTangentHeatFlux3DTempSens(TacsScalar theta, TacsScalar dKc[]);
+  void evalTangentHeatFlux2DTempSens(TacsScalar theta, TacsScalar dKc[]);
+  void evalThermalStrain3DTempSens(TacsScalar theta, TacsScalar de[]);
+  void evalThermalStrain2DTempSens(TacsScalar theta, TacsScalar de[]);
+
  private:
+  // Evaluate E, nu and their temperature derivatives at theta
+  void evalIsotropicProperties(TacsScalar theta, TacsScalar *_E,
+                               TacsScalar *_nu, TacsScalar *dE = NULL,
+                               TacsScalar *dnu = NULL);
+
   MaterialType mat_type;
 
   // Density
@@ -147,6 +226,12 @@ class TACSMaterialProperties : public TACSObject {
 
   // Thermal conductivity coefficients along each axis
   TacsScalar kappa1, kappa2, kappa3;
+
+  // Piecewise-linear property tables: temp_npts[k] points with temperature
+  // changes temp_T[k] and values temp_vals[k]. NULL if not set.
+  int temp_npts[TACS_NUM_TEMP_DEP_PROPERTIES];
+  TacsScalar *temp_T[TACS_NUM_TEMP_DEP_PROPERTIES];
+  TacsScalar *temp_vals[TACS_NUM_TEMP_DEP_PROPERTIES];
 };
 
 /*

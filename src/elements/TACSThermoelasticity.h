@@ -152,6 +152,10 @@ class TACSLinearThermoelasticity2D : public TACSElementModel {
 
   // Constant member data
   static const int linear_Jac_pairs[54];
+
+  // Jacobian pairs for temperature-dependent properties: the linear pairs
+  // followed by the temperature-coupling entries
+  static const int linear_temp_Jac_pairs[60];
 };
 
 class TACSLinearThermoelasticity3D : public TACSElementModel {
@@ -283,6 +287,10 @@ class TACSLinearThermoelasticity3D : public TACSElementModel {
 
   // Constant member data
   static const int linear_Jac_pairs[206];
+
+  // Jacobian pairs for temperature-dependent properties: the linear pairs
+  // followed by the temperature-coupling entries
+  static const int linear_temp_Jac_pairs[214];
 };
 
 #endif  // TACS_THERMOELASTICITY_H

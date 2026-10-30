@@ -86,6 +86,10 @@ def TestElementModelAdjXptSensProduct(ElementModel model, int elem_index, double
                                       double rtol=1e-5):
     return TacsTestElementModelAdjXptSensProduct(model.ptr, elem_index, time, dh, test_print_level, atol, rtol)
 
+def TestElementModelQuantitySens(ElementModel model, int elem_index, int quantity_type, double time, double dh=1e-6,
+                                 int test_print_level=2, double atol=1e-30, double rtol=1e-5):
+    return TacsTestElementModelQuantitySens(model.ptr, elem_index, quantity_type, time, dh, test_print_level, atol, rtol)
+
 def TestElementResidual(Element element, int elem_index,
                         double time,
                         np.ndarray[TacsScalar, ndim=1, mode='c'] xpts,

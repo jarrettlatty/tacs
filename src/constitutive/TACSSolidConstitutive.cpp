@@ -214,13 +214,7 @@ void TACSSolidConstitutive::evalThermalStrain(int elemIndex, const double pt[],
                                               TacsScalar theta,
                                               TacsScalar e[]) {
   if (properties) {
-    properties->evalThermalStrain3D(e);
-    e[0] *= theta;
-    e[1] *= theta;
-    e[2] *= theta;
-    e[3] *= theta;
-    e[4] *= theta;
-    e[5] *= theta;
+    properties->evalThermalStrain3D(theta, e);
   } else {
     e[0] = e[1] = e[2] = e[3] = e[4] = e[5] = 0.0;
   }
@@ -338,6 +332,279 @@ TacsScalar TACSSolidConstitutive::evalFailureStrainSens(int elemIndex,
               C[17] * sens[3] + C[19] * sens[4] + C[20] * sens[5];
 
     return fail;
+  }
+  return 0.0;
+}
+
+/*
+  Temperature-dependent evaluations
+*/
+
+// Compute s = C*e for the 21-entry symmetric packing of C
+static void symTangentProduct(const TacsScalar C[], const TacsScalar e[],
+                              TacsScalar s[]) {
+  s[0] = C[0] * e[0] + C[1] * e[1] + C[2] * e[2] + C[3] * e[3] + C[4] * e[4] +
+         C[5] * e[5];
+  s[1] = C[1] * e[0] + C[6] * e[1] + C[7] * e[2] + C[8] * e[3] + C[9] * e[4] +
+         C[10] * e[5];
+  s[2] = C[2] * e[0] + C[7] * e[1] + C[11] * e[2] + C[12] * e[3] +
+         C[13] * e[4] + C[14] * e[5];
+  s[3] = C[3] * e[0] + C[8] * e[1] + C[12] * e[2] + C[15] * e[3] +
+         C[16] * e[4] + C[17] * e[5];
+  s[4] = C[4] * e[0] + C[9] * e[1] + C[13] * e[2] + C[16] * e[3] +
+         C[18] * e[4] + C[19] * e[5];
+  s[5] = C[5] * e[0] + C[10] * e[1] + C[14] * e[2] + C[17] * e[3] +
+         C[19] * e[4] + C[20] * e[5];
+}
+
+// Check whether the material properties depend on temperature
+int TACSSolidConstitutive::isTemperatureDependent() {
+  return properties ? properties->isTemperatureDependent() : 0;
+}
+
+// Evaluate the specific heat at theta
+TacsScalar TACSSolidConstitutive::evalSpecificHeat(int elemIndex,
+                                                   const double pt[],
+                                                   const TacsScalar X[],
+                                                   TacsScalar theta) {
+  if (properties) {
+    return t * properties->getSpecificHeat(theta);
+  }
+  return 0.0;
+}
+
+// Evaluate the derivative of the specific heat w.r.t. theta
+TacsScalar TACSSolidConstitutive::evalSpecificHeatTempSens(int elemIndex,
+                                                           const double pt[],
+                                                           const TacsScalar X[],
+                                                           TacsScalar theta) {
+  if (properties) {
+    return t * properties->getSpecificHeatTempSens(theta);
+  }
+  return 0.0;
+}
+
+// Add the derivative of the specific heat at theta
+void TACSSolidConstitutive::addSpecificHeatDVSens(
+    int elemIndex, TacsScalar scale, const double pt[], const TacsScalar X[],
+    TacsScalar theta, int dvLen, TacsScalar dfdx[]) {
+  if (properties && tNum >= 0) {
+    dfdx[0] += scale * properties->getSpecificHeat(theta);
+  }
+}
+
+// Evaluate the stress at theta
+void TACSSolidConstitutive::evalStress(int elemIndex, const double pt[],
+                                       const TacsScalar X[], TacsScalar theta,
+                                       const TacsScalar e[], TacsScalar s[]) {
+  if (properties) {
+    TacsScalar C[21];
+    properties->evalTangentStiffness3D(theta, C);
+    symTangentProduct(C, e, s);
+    for (int i = 0; i < 6; i++) {
+      s[i] *= t;
+    }
+  } else {
+    s[0] = s[1] = s[2] = s[3] = s[4] = s[5] = 0.0;
+  }
+}
+
+// Evaluate the tangent stiffness at theta
+void TACSSolidConstitutive::evalTangentStiffness(int elemIndex,
+                                                 const double pt[],
+                                                 const TacsScalar X[],
+                                                 TacsScalar theta,
+                                                 TacsScalar C[]) {
+  if (properties) {
+    properties->evalTangentStiffness3D(theta, C);
+    for (int i = 0; i < 21; i++) {
+      C[i] *= t;
+    }
+  } else {
+    memset(C, 0, 21 * sizeof(TacsScalar));
+  }
+}
+
+// Add the derivative of the stress w.r.t. theta times a scalar
+void TACSSolidConstitutive::addStressTempSens(int elemIndex, TacsScalar scale,
+                                              const double pt[],
+                                              const TacsScalar X[],
+                                              TacsScalar theta,
+                                              const TacsScalar e[],
+                                              TacsScalar ds[]) {
+  if (properties) {
+    TacsScalar dC[21];
+    properties->evalTangentStiffness3DTempSens(theta, dC);
+
+    TacsScalar s[6];
+    symTangentProduct(dC, e, s);
+    for (int i = 0; i < 6; i++) {
+      ds[i] += scale * t * s[i];
+    }
+  }
+}
+
+// Add the derivative of the stress at theta w.r.t. design variables
+void TACSSolidConstitutive::addStressDVSens(int elemIndex, TacsScalar scale,
+                                            const double pt[],
+                                            const TacsScalar X[],
+                                            TacsScalar theta,
+                                            const TacsScalar e[],
+                                            const TacsScalar psi[], int dvLen,
+                                            TacsScalar dfdx[]) {
+  if (properties && tNum >= 0) {
+    TacsScalar C[21];
+    properties->evalTangentStiffness3D(theta, C);
+
+    TacsScalar s[6];
+    symTangentProduct(C, e, s);
+
+    // Compute the derivative w.r.t. the design vector
+    dfdx[0] += scale * (s[0] * psi[0] + s[1] * psi[1] + s[2] * psi[2] +
+                        s[3] * psi[3] + s[4] * psi[4] + s[5] * psi[5]);
+  }
+}
+
+// Evaluate the derivative of the thermal strain w.r.t. theta
+void TACSSolidConstitutive::evalThermalStrainTempSens(int elemIndex,
+                                                      const double pt[],
+                                                      const TacsScalar X[],
+                                                      TacsScalar theta,
+                                                      TacsScalar de[]) {
+  if (properties) {
+    properties->evalThermalStrain3DTempSens(theta, de);
+  } else {
+    de[0] = de[1] = de[2] = de[3] = de[4] = de[5] = 0.0;
+  }
+}
+
+// Evaluate the heat flux at theta, given the thermal gradient
+void TACSSolidConstitutive::evalHeatFlux(int elemIndex, const double pt[],
+                                         const TacsScalar X[],
+                                         TacsScalar theta,
+                                         const TacsScalar grad[],
+                                         TacsScalar flux[]) {
+  if (properties) {
+    TacsScalar C[6];
+    properties->evalTangentHeatFlux3D(theta, C);
+    flux[0] = t * (C[0] * grad[0] + C[1] * grad[1] + C[2] * grad[2]);
+    flux[1] = t * (C[1] * grad[0] + C[3] * grad[1] + C[4] * grad[2]);
+    flux[2] = t * (C[2] * grad[0] + C[4] * grad[1] + C[5] * grad[2]);
+  }
+}
+
+// Evaluate the tangent of the heat flux at theta
+void TACSSolidConstitutive::evalTangentHeatFlux(int elemIndex,
+                                                const double pt[],
+                                                const TacsScalar X[],
+                                                TacsScalar theta,
+                                                TacsScalar C[]) {
+  if (properties) {
+    properties->evalTangentHeatFlux3D(theta, C);
+    for (int i = 0; i < 6; i++) {
+      C[i] *= t;
+    }
+  }
+}
+
+// Add the derivative of the heat flux w.r.t. theta times a scalar
+void TACSSolidConstitutive::addHeatFluxTempSens(
+    int elemIndex, TacsScalar scale, const double pt[], const TacsScalar X[],
+    TacsScalar theta, const TacsScalar grad[], TacsScalar dflux[]) {
+  if (properties) {
+    TacsScalar dKc[6];
+    properties->evalTangentHeatFlux3DTempSens(theta, dKc);
+    dflux[0] += scale * t *
+                (dKc[0] * grad[0] + dKc[1] * grad[1] + dKc[2] * grad[2]);
+    dflux[1] += scale * t *
+                (dKc[1] * grad[0] + dKc[3] * grad[1] + dKc[4] * grad[2]);
+    dflux[2] += scale * t *
+                (dKc[2] * grad[0] + dKc[4] * grad[1] + dKc[5] * grad[2]);
+  }
+}
+
+// Add the derivative of the heat flux at theta w.r.t. design variables
+void TACSSolidConstitutive::addHeatFluxDVSens(
+    int elemIndex, TacsScalar scale, const double pt[], const TacsScalar X[],
+    TacsScalar theta, const TacsScalar grad[], const TacsScalar psi[],
+    int dvLen, TacsScalar dfdx[]) {
+  if (properties && tNum >= 0) {
+    TacsScalar C[6];
+    properties->evalTangentHeatFlux3D(theta, C);
+    dfdx[0] +=
+        scale * (psi[0] * (C[0] * grad[0] + C[1] * grad[1] + C[2] * grad[2]) +
+                 psi[1] * (C[1] * grad[0] + C[3] * grad[1] + C[4] * grad[2]) +
+                 psi[2] * (C[2] * grad[0] + C[4] * grad[1] + C[5] * grad[2]));
+  }
+}
+
+// Evaluate the material failure index at theta
+TacsScalar TACSSolidConstitutive::evalFailure(int elemIndex, const double pt[],
+                                              const TacsScalar X[],
+                                              TacsScalar theta,
+                                              const TacsScalar e[]) {
+  if (properties) {
+    TacsScalar C[21];
+    properties->evalTangentStiffness3D(theta, C);
+
+    TacsScalar s[6];
+    symTangentProduct(C, e, s);
+
+    return properties->vonMisesFailure3D(s);
+  }
+  return 0.0;
+}
+
+// Evaluate the failure index at theta and its derivative w.r.t. strain
+TacsScalar TACSSolidConstitutive::evalFailureStrainSens(
+    int elemIndex, const double pt[], const TacsScalar X[], TacsScalar theta,
+    const TacsScalar e[], TacsScalar dfde[]) {
+  if (properties) {
+    TacsScalar C[21];
+    properties->evalTangentStiffness3D(theta, C);
+
+    TacsScalar s[6];
+    symTangentProduct(C, e, s);
+
+    TacsScalar sens[6];
+    TacsScalar fail = properties->vonMisesFailure3DStressSens(s, sens);
+
+    // C is symmetric, so dfde = C*sens
+    symTangentProduct(C, sens, dfde);
+
+    return fail;
+  }
+  return 0.0;
+}
+
+// Evaluate the derivative of the failure index w.r.t. theta at fixed strain
+TacsScalar TACSSolidConstitutive::evalFailureTempSens(int elemIndex,
+                                                      const double pt[],
+                                                      const TacsScalar X[],
+                                                      TacsScalar theta,
+                                                      const TacsScalar e[]) {
+  if (properties) {
+    TacsScalar C[21];
+    properties->evalTangentStiffness3D(theta, C);
+
+    TacsScalar s[6];
+    symTangentProduct(C, e, s);
+
+    // Derivative of the stress w.r.t. theta at fixed strain
+    TacsScalar dC[21];
+    properties->evalTangentStiffness3DTempSens(theta, dC);
+
+    TacsScalar ds[6];
+    symTangentProduct(dC, e, ds);
+
+    TacsScalar sens[6];
+    properties->vonMisesFailure3DStressSens(s, sens);
+
+    TacsScalar dfdtheta = 0.0;
+    for (int i = 0; i < 6; i++) {
+      dfdtheta += sens[i] * ds[i];
+    }
+    return dfdtheta;
   }
   return 0.0;
 }

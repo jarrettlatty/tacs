@@ -16,6 +16,14 @@
 from tacs.cpp_headers.TACS cimport *
 
 cdef extern from "TACSMaterialProperties.h":
+    enum TemperatureDependentProperty:
+        TACS_TEMP_DEP_E
+        TACS_TEMP_DEP_NU
+        TACS_TEMP_DEP_ALPHA
+        TACS_TEMP_DEP_KAPPA
+        TACS_TEMP_DEP_SPECIFIC_HEAT
+        TACS_NUM_TEMP_DEP_PROPERTIES
+
     cdef cppclass TACSMaterialProperties(TACSObject):
         TACSMaterialProperties(TacsScalar, TacsScalar,
                                TacsScalar, TacsScalar,
@@ -50,6 +58,12 @@ cdef extern from "TACSMaterialProperties.h":
         void getThermalConductivity(TacsScalar*, TacsScalar*, TacsScalar*)
 
         MaterialType getMaterialType();
+
+        int setTemperatureDependentProperty(TemperatureDependentProperty, int, const TacsScalar*, const TacsScalar*)
+        int getTemperatureDependentProperty(TemperatureDependentProperty, const TacsScalar**, const TacsScalar**)
+        int isTemperatureDependent()
+        int isTemperatureDependent(TemperatureDependentProperty)
+        TacsScalar evalTemperatureDependentProperty(TemperatureDependentProperty, TacsScalar, TacsScalar*)
 
     cdef cppclass TACSOrthotropicPly(TACSObject):
         TACSOrthotropicPly(TacsScalar, TACSMaterialProperties*)
@@ -332,3 +346,6 @@ cdef extern from "TACSConstitutiveVerification.h":
     int TacsTestConstitutiveFailureStrainSens(TACSConstitutive*, int, const double*, const TacsScalar*,
                                               double, int, double, double)
     int TacsTestConstitutive(TACSConstitutive*, int, double, int, double, double)
+    int TacsTestMaterialPropertiesTempSens(TACSMaterialProperties*, TacsScalar, double, int, double, double)
+    int TacsTestConstitutiveTempSens(TACSConstitutive*, int, const double*, const TacsScalar*, int,
+                                     const TacsScalar*, TacsScalar, double, int, double, double)

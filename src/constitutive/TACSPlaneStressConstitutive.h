@@ -31,6 +31,17 @@ class TACSPlaneStressConstitutive : public TACSConstitutive {
  public:
   static const int NUM_STRESSES = 3;
 
+  // Bring in the base class overloads that are not overridden here
+  using TACSConstitutive::evalSpecificHeat;
+  using TACSConstitutive::evalStress;
+  using TACSConstitutive::evalTangentStiffness;
+  using TACSConstitutive::addStressDVSens;
+  using TACSConstitutive::evalHeatFlux;
+  using TACSConstitutive::evalTangentHeatFlux;
+  using TACSConstitutive::addHeatFluxDVSens;
+  using TACSConstitutive::evalFailure;
+  using TACSConstitutive::evalFailureStrainSens;
+
   TACSPlaneStressConstitutive(TACSMaterialProperties *properties,
                               TacsScalar _t = 1.0, int _tNum = -1,
                               TacsScalar _tlb = 0.0, TacsScalar _tub = 1.0);
@@ -101,6 +112,63 @@ class TACSPlaneStressConstitutive : public TACSConstitutive {
   TacsScalar evalFailureStrainSens(int elemIndex, const double pt[],
                                    const TacsScalar X[], const TacsScalar e[],
                                    TacsScalar sens[]);
+
+  // Temperature-dependent evaluations
+  int isTemperatureDependent();
+
+  TacsScalar evalSpecificHeat(int elemIndex, const double pt[],
+                              const TacsScalar X[], TacsScalar theta);
+
+  TacsScalar evalSpecificHeatTempSens(int elemIndex, const double pt[],
+                                      const TacsScalar X[], TacsScalar theta);
+
+  void evalStress(int elemIndex, const double pt[], const TacsScalar X[],
+                  TacsScalar theta, const TacsScalar e[], TacsScalar s[]);
+
+  void evalTangentStiffness(int elemIndex, const double pt[],
+                            const TacsScalar X[], TacsScalar theta,
+                            TacsScalar C[]);
+
+  void addStressTempSens(int elemIndex, TacsScalar scale, const double pt[],
+                         const TacsScalar X[], TacsScalar theta,
+                         const TacsScalar e[], TacsScalar ds[]);
+
+  void addStressDVSens(int elemIndex, TacsScalar scale, const double pt[],
+                       const TacsScalar X[], TacsScalar theta,
+                       const TacsScalar e[], const TacsScalar psi[], int dvLen,
+                       TacsScalar dfdx[]);
+
+  void evalThermalStrainTempSens(int elemIndex, const double pt[],
+                                 const TacsScalar X[], TacsScalar theta,
+                                 TacsScalar de[]);
+
+  void evalHeatFlux(int elemIndex, const double pt[], const TacsScalar X[],
+                    TacsScalar theta, const TacsScalar grad[],
+                    TacsScalar flux[]);
+
+  void evalTangentHeatFlux(int elemIndex, const double pt[],
+                           const TacsScalar X[], TacsScalar theta,
+                           TacsScalar Kc[]);
+
+  void addHeatFluxTempSens(int elemIndex, TacsScalar scale, const double pt[],
+                           const TacsScalar X[], TacsScalar theta,
+                           const TacsScalar grad[], TacsScalar dflux[]);
+
+  void addHeatFluxDVSens(int elemIndex, TacsScalar scale, const double pt[],
+                         const TacsScalar X[], TacsScalar theta,
+                         const TacsScalar grad[], const TacsScalar psi[],
+                         int dvLen, TacsScalar dfdx[]);
+
+  TacsScalar evalFailure(int elemIndex, const double pt[], const TacsScalar X[],
+                         TacsScalar theta, const TacsScalar e[]);
+
+  TacsScalar evalFailureStrainSens(int elemIndex, const double pt[],
+                                   const TacsScalar X[], TacsScalar theta,
+                                   const TacsScalar e[], TacsScalar dfde[]);
+
+  TacsScalar evalFailureTempSens(int elemIndex, const double pt[],
+                                 const TacsScalar X[], TacsScalar theta,
+                                 const TacsScalar e[]);
 
   // Extra info about the constitutive class
   const char *getObjectName();

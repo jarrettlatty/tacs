@@ -175,6 +175,9 @@ class pyTACS(BaseUI):
         self.bdfInfo = self.meshLoader.getBDFInfo()
         self.bdfName = self.bdfInfo.bdf_filename
 
+        # Flag temperature-dependent material cards, which are not read from the BDF
+        self._checkTempDepMaterialCards()
+
         meshLoadTime = time.time()
 
         # Retrieve the number of components. This is the maximum
@@ -828,6 +831,29 @@ class pyTACS(BaseUI):
 
         # Vector used to store temporarily store state variables
         self.tempVec = self.assembler.createVec()
+
+    def _checkTempDepMaterialCards(self):
+        """Warn if the BDF contains temperature-dependent material cards.
+
+        Temperature-dependent material property cards (MATTi and TABLEMi) are not
+        read by pyTACS. Temperature-dependent properties must instead be set in the
+        elemCallBack, by passing (2, n) tables of temperature change and value to
+        tacs.constitutive.MaterialProperties.
+        """
+        cardTypes = ["MATT1", "MATT2", "MATT3", "MATT4", "MATT5", "MATT8", "MATT9", "MATT11"]
+        foundCards = sorted(
+            {cardType for cardType in cardTypes if len(getattr(self.bdfInfo, cardType, {})) > 0}
+        )
+        tablesM = getattr(self.bdfInfo, "tables_m", {})
+        foundCards += sorted({table.type for table in tablesM.values()})
+        if len(foundCards) > 0:
+            self._TACSWarning(
+                f"The BDF contains temperature-dependent material cards ({', '.join(foundCards)}), "
+                "which are not read by pyTACS and will be ignored. To use temperature-dependent "
+                "material properties, set them in the elemCallBack by passing (2, n) tables of "
+                "temperature change (T - Tref) and property value to "
+                "tacs.constitutive.MaterialProperties."
+            )
 
     @postinitialize_method
     def _checkNonlinearity(self) -> bool:

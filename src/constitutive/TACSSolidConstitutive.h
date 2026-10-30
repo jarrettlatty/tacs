@@ -31,6 +31,18 @@ class TACSSolidConstitutive : public TACSConstitutive {
  public:
   static const int NUM_STRESSES = 6;
 
+  // Bring the base class overloads that are not overridden here into scope
+  using TACSConstitutive::evalSpecificHeat;
+  using TACSConstitutive::addSpecificHeatDVSens;
+  using TACSConstitutive::evalStress;
+  using TACSConstitutive::evalTangentStiffness;
+  using TACSConstitutive::addStressDVSens;
+  using TACSConstitutive::evalHeatFlux;
+  using TACSConstitutive::evalTangentHeatFlux;
+  using TACSConstitutive::addHeatFluxDVSens;
+  using TACSConstitutive::evalFailure;
+  using TACSConstitutive::evalFailureStrainSens;
+
   TACSSolidConstitutive(TACSMaterialProperties *properties, TacsScalar _t = 1.0,
                         int _tNum = -1, TacsScalar _tlb = 0.0,
                         TacsScalar _tub = 1.0);
@@ -106,6 +118,83 @@ class TACSSolidConstitutive : public TACSConstitutive {
   TacsScalar evalFailureStrainSens(int elemIndex, const double pt[],
                                    const TacsScalar X[], const TacsScalar e[],
                                    TacsScalar sens[]);
+
+  // Temperature-dependent evaluations
+  // Check whether the material properties depend on temperature
+  int isTemperatureDependent();
+
+  // Evaluate the specific heat at theta
+  TacsScalar evalSpecificHeat(int elemIndex, const double pt[],
+                              const TacsScalar X[], TacsScalar theta);
+
+  // Evaluate the derivative of the specific heat w.r.t. theta
+  TacsScalar evalSpecificHeatTempSens(int elemIndex, const double pt[],
+                                      const TacsScalar X[], TacsScalar theta);
+
+  // Add the derivative of the specific heat at theta
+  void addSpecificHeatDVSens(int elemIndex, TacsScalar scale, const double pt[],
+                             const TacsScalar X[], TacsScalar theta, int dvLen,
+                             TacsScalar dfdx[]);
+
+  // Evaluate the stress at theta
+  void evalStress(int elemIndex, const double pt[], const TacsScalar X[],
+                  TacsScalar theta, const TacsScalar e[], TacsScalar s[]);
+
+  // Evaluate the tangent stiffness at theta
+  void evalTangentStiffness(int elemIndex, const double pt[],
+                            const TacsScalar X[], TacsScalar theta,
+                            TacsScalar C[]);
+
+  // Add the derivative of the stress w.r.t. theta times a scalar
+  void addStressTempSens(int elemIndex, TacsScalar scale, const double pt[],
+                         const TacsScalar X[], TacsScalar theta,
+                         const TacsScalar e[], TacsScalar ds[]);
+
+  // Add the derivative of the stress at theta w.r.t. design variables
+  void addStressDVSens(int elemIndex, TacsScalar scale, const double pt[],
+                       const TacsScalar X[], TacsScalar theta,
+                       const TacsScalar e[], const TacsScalar psi[], int dvLen,
+                       TacsScalar dfdx[]);
+
+  // Evaluate the derivative of the thermal strain w.r.t. theta
+  void evalThermalStrainTempSens(int elemIndex, const double pt[],
+                                 const TacsScalar X[], TacsScalar theta,
+                                 TacsScalar de[]);
+
+  // Evaluate the heat flux at theta, given the thermal gradient
+  void evalHeatFlux(int elemIndex, const double pt[], const TacsScalar X[],
+                    TacsScalar theta, const TacsScalar grad[],
+                    TacsScalar flux[]);
+
+  // Evaluate the tangent of the heat flux at theta
+  void evalTangentHeatFlux(int elemIndex, const double pt[],
+                           const TacsScalar X[], TacsScalar theta,
+                           TacsScalar Kc[]);
+
+  // Add the derivative of the heat flux w.r.t. theta times a scalar
+  void addHeatFluxTempSens(int elemIndex, TacsScalar scale, const double pt[],
+                           const TacsScalar X[], TacsScalar theta,
+                           const TacsScalar grad[], TacsScalar dflux[]);
+
+  // Add the derivative of the heat flux at theta w.r.t. design variables
+  void addHeatFluxDVSens(int elemIndex, TacsScalar scale, const double pt[],
+                         const TacsScalar X[], TacsScalar theta,
+                         const TacsScalar grad[], const TacsScalar psi[],
+                         int dvLen, TacsScalar dfdx[]);
+
+  // Evaluate the material failure index at theta
+  TacsScalar evalFailure(int elemIndex, const double pt[], const TacsScalar X[],
+                         TacsScalar theta, const TacsScalar e[]);
+
+  // Evaluate the failure index at theta and its derivative w.r.t. strain
+  TacsScalar evalFailureStrainSens(int elemIndex, const double pt[],
+                                   const TacsScalar X[], TacsScalar theta,
+                                   const TacsScalar e[], TacsScalar dfde[]);
+
+  // Evaluate the derivative of the failure index w.r.t. theta at fixed strain
+  TacsScalar evalFailureTempSens(int elemIndex, const double pt[],
+                                 const TacsScalar X[], TacsScalar theta,
+                                 const TacsScalar e[]);
 
   // Extra info about the constitutive class
   const char *getObjectName();

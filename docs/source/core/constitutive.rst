@@ -11,6 +11,11 @@ Most constitutive classes require a material properties class to setup. The foll
   :members: MaterialProperties, OrthotropicPly
   :show-inheritance:
 
+.. seealso::
+
+   For piecewise-linear, temperature-dependent material properties (``E``, ``nu``, ``alpha``, ``kappa``,
+   ``specific_heat``), see :doc:`/theory/temperature_dependent_materials`.
+
 Constitutive classes
 --------------------
 Most :class:`~TACS.Element` classes require a :class:`~TACS.Constitutive` class in their setup procedure.

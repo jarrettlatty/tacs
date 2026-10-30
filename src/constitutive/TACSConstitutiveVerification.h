@@ -17,6 +17,7 @@
 
 #include "TACSConstitutive.h"
 #include "TACSElementVerification.h"
+#include "TACSMaterialProperties.h"
 
 /**
   Test the density design variable sensitivity implementation.
@@ -173,5 +174,60 @@ int TacsTestConstitutiveFailureStrainSens(TACSConstitutive *con, int elemIndex,
 int TacsTestConstitutive(TACSConstitutive *con, int elemIndex, double dh = 1e-7,
                          int test_print_level = 2, double test_fail_atol = 1e-5,
                          double test_fail_rtol = 1e-5);
+
+/**
+  Test the temperature derivatives of the material properties.
+
+  Every temperature-dependent evaluation of the material (the specific heat,
+  the tangent stiffness, the tangent heat flux, the thermal strain and each
+  temperature-dependent property) is compared against a complex-step or
+  forward-difference approximation of its derivative with respect to the
+  temperature change theta. The piecewise-linear property tables are not
+  differentiable at their breakpoints, so theta should be chosen away from
+  the table breakpoints.
+
+  @param props The material properties object to test
+  @param theta The temperature change at which the test is performed
+  @param dh The finite-difference step size
+  @param test_print_level The output level
+  @param test_fail_atol The test absolute tolerance
+  @param test_fail_rtol The test relative tolerance
+*/
+int TacsTestMaterialPropertiesTempSens(TACSMaterialProperties *props,
+                                       TacsScalar theta, double dh = 1e-7,
+                                       int test_print_level = 2,
+                                       double test_fail_atol = 1e-5,
+                                       double test_fail_rtol = 1e-5);
+
+/**
+  Test the temperature-dependent constitutive evaluations.
+
+  The temperature derivatives of the stress, thermal strain, heat flux,
+  specific heat and failure index are compared against complex-step or
+  forward-difference approximations formed from the evaluations at theta and
+  theta + dh. The design variable sensitivities of the temperature-dependent
+  stress, heat flux and specific heat are also tested (if ndvs > 0). If the
+  constitutive object is not temperature dependent, the temperature-dependent
+  evaluations must reproduce the temperature-independent ones exactly.
+
+  @param con The constitutive object to test
+  @param elemIndex The element index for the constitutive test
+  @param pt The Gauss point location
+  @param X The spatial location
+  @param ndvs The length of the design variable array
+  @param dvs The design variable array
+  @param theta The temperature change at which the test is performed
+  @param dh The finite-difference step size
+  @param test_print_level The output level
+  @param test_fail_atol The test absolute tolerance
+  @param test_fail_rtol The test relative tolerance
+*/
+int TacsTestConstitutiveTempSens(TACSConstitutive *con, int elemIndex,
+                                 const double pt[], const TacsScalar X[],
+                                 int ndvs, const TacsScalar *dvs,
+                                 TacsScalar theta, double dh = 1e-7,
+                                 int test_print_level = 2,
+                                 double test_fail_atol = 1e-5,
+                                 double test_fail_rtol = 1e-5);
 
 #endif  // TACS_CONSTITUTIVE_VERIFICATION_H

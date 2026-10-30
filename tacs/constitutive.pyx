@@ -85,6 +85,62 @@ def _check_constitutive_kwargs(self, cls, kwargs, required_keys, valid_keys):
             )
 
 
+# Map the names accepted for temperature-dependent properties to the TACS enum
+_TEMP_DEP_PROPERTY_NAMES = {"E": TACS_TEMP_DEP_E, "nu": TACS_TEMP_DEP_NU, "alpha": TACS_TEMP_DEP_ALPHA,
+                            "kappa": TACS_TEMP_DEP_KAPPA, "specific_heat": TACS_TEMP_DEP_SPECIFIC_HEAT}
+
+cdef TemperatureDependentProperty _getTempDepProperty(name) except *:
+    # Convert a property name into its temperature-dependent property enum, raising a
+    # ValueError (with a suggestion for close matches) if the name is not supported
+    if name in _TEMP_DEP_PROPERTY_NAMES:
+        return _TEMP_DEP_PROPERTY_NAMES[name]
+
+    valid_names = list(_TEMP_DEP_PROPERTY_NAMES.keys())
+    close = difflib.get_close_matches(str(name), valid_names, n=1, cutoff=0.6)
+    msg = f"'{name}' is not a temperature-dependent material property."
+    if close:
+        msg += f" Did you mean '{close[0]}'?"
+    raise ValueError(msg + f" Valid names are: {valid_names}")
+
+
+def _parseTempDepTable(name, value, allow_scalar=True):
+    """
+    Parse a material property given either as a fixed scalar value or as a (2, n) table with the
+    temperature changes theta = T - Tref in row 0 (strictly increasing) and the property values in
+    row 1.
+
+    Returns:
+        value: The scalar value. For a table this is the table value at theta = 0, with the end
+            values held constant outside the table range.
+        table (np.ndarray or None): The validated (2, n) table, or None for a fixed value. A
+            single-point table is treated as a fixed value.
+    """
+    if np.ndim(value) == 0:
+        if not allow_scalar:
+            raise ValueError(f"Temperature-dependent property '{name}' requires a (2, n) table with the "
+                             "temperature changes in row 0 and the values in row 1, not a scalar.")
+        return value, None
+
+    table = np.array(value, dtype=dtype)
+    if table.ndim != 2 or table.shape[0] != 2 or table.shape[1] < 1:
+        hint = ""
+        if table.ndim == 2 and table.shape[1] == 2:
+            hint = " The array appears to be (n, 2); pass its transpose."
+        raise ValueError(f"Temperature-dependent property '{name}' must be a scalar or a (2, n) array with the "
+                         f"temperature changes in row 0 and the values in row 1, but got shape {table.shape}."
+                         + hint)
+
+    theta = np.real(table[0])
+    if np.any(np.diff(theta) <= 0.0):
+        raise ValueError(f"Temperature-dependent property '{name}' requires the temperature changes in row 0 "
+                         "to be strictly increasing.")
+
+    if table.shape[1] == 1 and allow_scalar:
+        return table[1, 0], None
+
+    return np.interp(0.0, theta, table[1]), table
+
+
 cdef class MaterialProperties:
     """
     This class stores the mechanical and thermal material properties for
@@ -227,6 +283,27 @@ cdef class MaterialProperties:
             (3 - Fill stress plane) in the Cuntze failure criterion for woven material.
             Is not used for 2-dimensional stress states. (keyword argument)
         m (float or complex, optional): The interaction exponent used in the Cuntze failure criterion (keyword argument).
+
+    Temperature-dependent properties:
+
+        The isotropic properties E, nu, alpha, kappa and specific_heat may each be given either as a
+        fixed scalar value or as a (2, n) array: row 0 holds strictly increasing temperature changes
+        theta = T - Tref and row 1 the property values. theta is the temperature state variable used by
+        TACS, so the tables are defined relative to the reference (stress-free) temperature, and Tref
+        must be subtracted from absolute temperatures by the user. Values are interpolated linearly
+        and held constant at the end values outside the table range. The thermal strain uses the
+        secant definition alpha(theta)*theta. Functions that do not take a temperature (for example
+        those used by shell elements) use the table value at theta = 0. Temperature-dependent
+        properties are only supported for isotropic materials. For example, with Tref = 300 K:
+
+            mat = constitutive.MaterialProperties(
+                rho=2700.0,
+                E=[[-50.0, 50.0, 150.0], [72e9, 70e9, 66e9]],
+                nu=0.3,
+                alpha=[[-50.0, 150.0], [22e-6, 26e-6]],
+                kappa=230.0,
+                specific_heat=921.0,
+            )
     """
     def __cinit__(self, **kwargs):
         # Set the density and specific heat value
@@ -301,6 +378,19 @@ cdef class MaterialProperties:
                 raise ValueError(f"{input_key} is not a valid material property. Perhaps you meant {guess}? \n"
                                  "Acceptable arguments are: \n" +
                                  ", ".join(ALL_KEYS),)
+
+        # Temperature-dependent properties may be given as (2, n) tables. Replace each table with its
+        # value at theta = 0, and set the tables once the material has been created.
+        temp_dep_tables = {}
+        kwargs = dict(kwargs)
+        for input_key in list(kwargs):
+            if input_key in _TEMP_DEP_PROPERTY_NAMES:
+                kwargs[input_key], table = _parseTempDepTable(input_key, kwargs[input_key])
+                if table is not None:
+                    temp_dep_tables[input_key] = table
+            elif np.ndim(kwargs[input_key]) != 0:
+                raise ValueError(f"Material property '{input_key}' must be a scalar. Only "
+                                 f"{list(_TEMP_DEP_PROPERTY_NAMES)} may be given as temperature-dependent tables.")
 
         # Check if any input provided in kwargs was orthotropic
         if any(input_key in ORTHOTROPIC_KEYS for input_key in kwargs):
@@ -432,6 +522,12 @@ cdef class MaterialProperties:
                                                   E, nu, ys, alpha, kappa)
         self.ptr.incref()
         self.nastranID = 0
+
+        if temp_dep_tables:
+            if is_orthotropic:
+                raise ValueError("Temperature-dependent properties are only supported for isotropic materials.")
+            for name, table in temp_dep_tables.items():
+                self.setTemperatureDependentProperty(name, table)
 
     def __dealloc__(self):
         if self.ptr:
@@ -566,6 +662,107 @@ cdef class MaterialProperties:
             rho (float or complex): The material specific heat
         """
         self.ptr.setSpecificHeat(specific_heat)
+
+    def setTemperatureDependentProperty(self, name, table):
+        """
+        Set a piecewise-linear table of a material property versus the temperature change.
+
+        The table is a (2, n) array: row 0 holds strictly increasing temperature changes
+        theta = T - Tref, where theta is the temperature state variable used by TACS, and row 1 the
+        property values. Values outside the table range are held constant at the end values. The
+        constant value used by functions that do not take a temperature is not changed. Only isotropic
+        materials support temperature-dependent properties.
+
+        Args:
+            name (str): The property name. Supported names are 'E', 'nu', 'alpha', 'kappa' and 'specific_heat'.
+            table (array-like): The (2, n) table of temperature changes and property values.
+        """
+        cdef TemperatureDependentProperty prop = _getTempDepProperty(name)
+        cdef np.ndarray theta_arr
+        cdef np.ndarray vals_arr
+        cdef int npts
+        cdef int fail
+
+        _, table = _parseTempDepTable(name, table, allow_scalar=False)
+        theta_arr = np.ascontiguousarray(table[0], dtype=dtype)
+        vals_arr = np.ascontiguousarray(table[1], dtype=dtype)
+        npts = len(theta_arr)
+
+        fail = self.ptr.setTemperatureDependentProperty(prop, npts, <TacsScalar*>theta_arr.data,
+                                                         <TacsScalar*>vals_arr.data)
+        if fail != 0:
+            raise ValueError("Temperature-dependent properties are only supported for isotropic materials "
+                             f"(failed to set the table for '{name}').")
+
+    def getTemperatureDependentProperty(self, name):
+        """
+        Get the piecewise-linear table of a material property versus the temperature change.
+
+        Args:
+            name (str): The property name. Supported names are 'E', 'nu', 'alpha', 'kappa' and 'specific_heat'.
+
+        Returns:
+            table (np.ndarray or None): None if no table is set for the property, otherwise a new (2, n)
+                array with the temperature changes theta = T - Tref in row 0 and the values in row 1.
+        """
+        cdef TemperatureDependentProperty prop = _getTempDepProperty(name)
+        cdef const TacsScalar *theta_ptr = NULL
+        cdef const TacsScalar *vals_ptr = NULL
+        cdef int npts
+        cdef int i
+        cdef np.ndarray table
+
+        npts = self.ptr.getTemperatureDependentProperty(prop, &theta_ptr, &vals_ptr)
+        if npts == 0:
+            return None
+
+        table = np.zeros((2, npts), dtype)
+        for i in range(npts):
+            table[0, i] = theta_ptr[i]
+            table[1, i] = vals_ptr[i]
+
+        return table
+
+    def isTemperatureDependent(self, name=None):
+        """
+        Check whether a material property, or any material property, has a temperature-dependent table.
+
+        Args:
+            name (str, optional): The property name. Supported names are 'E', 'nu', 'alpha', 'kappa'
+                and 'specific_heat'. If None, checks whether any property has a table.
+
+        Returns:
+            flag (bool): True if the property (or any property if name is None) is temperature dependent.
+        """
+        cdef TemperatureDependentProperty prop
+
+        if name is None:
+            return self.ptr.isTemperatureDependent() != 0
+
+        prop = _getTempDepProperty(name)
+        return self.ptr.isTemperatureDependent(prop) != 0
+
+    def evalTemperatureDependentProperty(self, name, TacsScalar theta):
+        """
+        Evaluate a material property and its derivative with respect to temperature.
+
+        The property is evaluated at the temperature change theta = T - Tref. Properties without a
+        table return their constant value and a zero derivative.
+
+        Args:
+            name (str): The property name. Supported names are 'E', 'nu', 'alpha', 'kappa' and 'specific_heat'.
+            theta (float or complex): The temperature change (the TACS temperature state variable).
+
+        Returns:
+            value (float or complex): The property value at theta.
+            dvdT (float or complex): The derivative of the property with respect to temperature.
+        """
+        cdef TemperatureDependentProperty prop = _getTempDepProperty(name)
+        cdef TacsScalar dvdT = 0.0
+        cdef TacsScalar value
+
+        value = self.ptr.evalTemperatureDependentProperty(prop, theta, &dvdT)
+        return value, dvdT
 
 cdef class MAT2MaterialProperties(MaterialProperties):
     """
@@ -3118,6 +3315,22 @@ def TestConstitutiveSpecificHeat(Constitutive con, int elem_index,
     assert len(x) == 3
     return TacsTestConstitutiveSpecificHeat(con.ptr, elem_index, <double*>pt.data, <TacsScalar*>x.data, ndvs,
                                             <TacsScalar*>dvs.data, dh, test_print_level, atol, rtol)
+
+def TestMaterialPropertiesTempSens(MaterialProperties props, TacsScalar theta, double dh=1e-6, int test_print_level=2,
+                                   double atol=1e-30, double rtol=1e-5):
+    return TacsTestMaterialPropertiesTempSens(props.ptr, theta, dh, test_print_level, atol, rtol)
+
+def TestConstitutiveTempSens(Constitutive con, int elem_index,
+                             np.ndarray[double, ndim=1, mode='c'] pt,
+                             np.ndarray[TacsScalar, ndim=1, mode='c'] x,
+                             np.ndarray[TacsScalar, ndim=1, mode='c'] dvs,
+                             TacsScalar theta, double dh=1e-6, int test_print_level=2,
+                             double atol=1e-30, double rtol=1e-5):
+    ndvs = len(dvs)
+    assert len(pt) == 3
+    assert len(x) == 3
+    return TacsTestConstitutiveTempSens(con.ptr, elem_index, <double*>pt.data, <TacsScalar*>x.data, ndvs,
+                                        <TacsScalar*>dvs.data, theta, dh, test_print_level, atol, rtol)
 
 def TestConstitutiveHeatFlux(Constitutive con, int elem_index,
                              np.ndarray[double, ndim=1, mode='c'] pt,
